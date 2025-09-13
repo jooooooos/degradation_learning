@@ -114,7 +114,7 @@ class DegradationLearner:
         return None
 
     def fit_usage_hazard(self, data):
-        bounds = [(0, None)] * self.d
+        bounds = [(0, 1)] * self.d
         res = minimize(
             neg_loglik, 
             self.initial_theta, 

@@ -45,11 +45,11 @@ class Machine:
         self.cumulative_hazard: float = 0.0
         self.E: float = np.random.exponential(1.0)
                 
-    def calculate_price(self, customer_context: np.ndarray, u_estimate: float) -> float:
+    def calculate_price(self, customer_context, u_estimate=None) -> float:
         """Calculates the price for a given customer."""
         if u_estimate is not None:
             return customer_context @ u_estimate - self.price_eps
-        return customer_context @ self.r
+        return customer_context @ self.pricing_r
     
     def record_survival(self, context, idle_time):
         """Updates the accumulated context after a successful rental."""
@@ -95,6 +95,7 @@ class Simulator:
         mdp_params: Dict[str, Any]=None,
         training_hyperparams: Dict[str, Any]=None,
         policy_update_threshold: int=5,
+        price_eps: float=1e-2,
     ):
         self.d = d
         self.T = T
@@ -107,7 +108,7 @@ class Simulator:
         self.mdp_params = mdp_params
         self.training_hyperparams = training_hyperparams
 
-        self.machine = Machine(d, pricing_r)
+        self.machine = Machine(d, pricing_r, price_eps)
         self.calendar_time: float = 0.0
         self.optimal_policy = None
             
@@ -128,7 +129,7 @@ class Simulator:
         self.degradation_learner = DegradationLearner(d=self.d)
         df_degradation = pd.DataFrame(self.degradation_history)
         self.degradation_learner.fit(df_degradation)
-        
+
         # 2. Instantiate and train the DP agent
         u_hat = self.projected_volume_learner.get_estimate()
         dp_agent = DPAgent(
@@ -184,6 +185,7 @@ class Simulator:
                     [customer['desired_duration'], I_before, 0.0]
                 ])
                 action = self.optimal_policy(arrival_state)
+                # action = 0 # temporary
 
                 price = self.machine.calculate_price(
                     customer['context'], 
@@ -251,6 +253,7 @@ class Simulator:
                     [0.0, I_after, 1.0]
                 ])
                 action = self.optimal_policy(departure_state)
+                # action = 3 # temporary
                 if action == 2: # Replace Machine
                     self.history.append({
                         "event_type": "replacement",
@@ -268,3 +271,18 @@ class Simulator:
         logging.info("Simulation finished.")
         return self.history
 
+    def save(self, filepath: str):
+        """Saves the simulation state to a file."""
+        import pickle
+        with open(filepath, 'wb') as f:
+            pickle.dump(self, f)
+        logging.info(f"Simulation state saved to {filepath}.")
+
+    @staticmethod
+    def load(filepath: str) -> 'Simulator':
+        """Loads a simulation state from a file."""
+        import pickle
+        with open(filepath, 'rb') as f:
+            sim = pickle.load(f)
+        logging.info(f"Simulation state loaded from {filepath}.")
+        return sim

@@ -4,6 +4,7 @@ import torch.optim as optim
 import numpy as np
 from tqdm import tqdm
 import random
+import logging
 
 # --- 1. Define the Neural Network for Q-Function Approximation ---
 
@@ -138,7 +139,10 @@ class ExperienceGenerator:
 class DPAgent:
     """Fitted Q-Iteration Agent."""
     def __init__(self, d, u_hat, degradation_learner, customer_generator, params):
-        self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        # check "mps" and "cuda"
+        device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+
+        self.device = torch.device(device)
         print(f"Using device: {self.device}")
 
         self.state_dim = 2 * d + 3
@@ -232,7 +236,8 @@ class DPAgent:
             history['loss'].append(avg_loss)
             history['avg_q_value'].append(avg_q)
             
-            pbar.set_description(f"Iter {i+1}/{num_iterations} | Loss: {avg_loss:.4f} | Avg Q-Value: {avg_q:.2f}")
+            # pbar.set_description(f"Iter {i+1}/{num_iterations} | Loss: {avg_loss:.4f} | Avg Q-Value: {avg_q:.2f}")
+            logging.info(f"Iter {i+1}/{num_iterations} | Loss: {avg_loss:.4f} | Avg Q-Value: {avg_q:.2f}")
 
             # Update target network weights periodically
             if (i + 1) % self.params['target_update_freq'] == 0:
