@@ -4,6 +4,8 @@ import gurobipy as gp
 from gurobipy import GRB
 from tqdm.notebook import tqdm, trange
 import matplotlib.pyplot as plt
+from scipy.linalg import eigh
+import logging
 
 def delta_bar(T, d):
     temp = 16 * T ** 2 * d * (d+1) ** 2
@@ -215,7 +217,7 @@ def find_max_lambda(p, dir, feasibility_func, tol=1e-6, max_bound=1e4):
             high = mid
     return low
 
-def hit_and_run(num_samples, thin, burn_in, d, initial_p, feasibility_func, tol=1e-6):
+def hit_and_run(num_samples, thin, burn_in, d, initial_p, feasibility_func, tol=1e-8):
     """
     Hit-and-run sampler to generate approximate uniform samples from the convex set.
 
@@ -240,14 +242,15 @@ def hit_and_run(num_samples, thin, burn_in, d, initial_p, feasibility_func, tol=
         min_l = find_min_lambda(p, dir, feasibility_func, tol)
         max_l = find_max_lambda(p, dir, feasibility_func, tol)
         if min_l >= max_l - tol:
-            raise ValueError("Invalid lambda range; set may be degenerate.")
+            logging.warning("Degenerate step in hit-and-run; skipping sample.")
+            continue
         lambda_new = np.random.uniform(min_l, max_l)
         p = p + lambda_new * dir
         if step >= burn_in and (step - burn_in) % thin == 0:
             samples.append(p.copy())
-    return np.array(samples)
+    return np.array(samples), p
 
-def get_centroid(S, V, d, num_samples=2000, thin=None, burn_in=None, tol=1e-6, rho_target=0.01):
+def get_centroid(S, V, d, num_samples=2000, thin=None, burn_in=None, tol=1e-6, rho_target=0.01, return_samples=False):
     """
     Computes an approximate centroid of Cyl(S, V) using hit-and-run sampling.
 
@@ -284,15 +287,20 @@ def get_centroid(S, V, d, num_samples=2000, thin=None, burn_in=None, tol=1e-6, r
     initial_p = find_point_in_S(S, d)
     if initial_p is None:
         raise ValueError("S is empty or infeasible.")
-    samples = hit_and_run(num_samples, thin, burn_in, d, initial_p, feas, tol)
+    samples, p = hit_and_run(num_samples, thin, burn_in, d, initial_p, feas, tol)
     if len(samples) == 0:
-        raise ValueError("No samples collected.")
-    return np.mean(samples, axis=0)
+        logging.warning("No samples collected in hit-and-run.")
+        return None
+
+    centroid = np.mean(samples, axis=0)
+    if return_samples:
+        return centroid, samples
+    return centroid
 
 
 def projected_volume_update(
     delta_bar, S_t, V_t, a1, a2, d, u, 
-    max_trials=100, 
+    max_trials=None, 
     num_samples=2000, 
     thin=None, 
     burn_in=None,
@@ -323,6 +331,8 @@ def projected_volume_update(
     
     # Line 2: Compute centroid of Cyl(S_t, V_t)
     hat_s = get_centroid(S_t, V_t, d, num_samples, thin, burn_in, tol, rho_target)
+    if hat_s is None:
+        return S_t, V_t, data  # Return unchanged if centroid fails
     
     # Compute w_t and x_t
     diff = a1 - a2
@@ -365,6 +375,7 @@ def projected_volume_update(
             _, _, Vt = np.linalg.svd(V_mat.T, full_matrices=True)
             perp = Vt[len(V_tp1):, :].T  # d x (d - n)
         added = False
+        max_trials = max(1000, 100 * (d - len(V_tp1))) if max_trials is None else max_trials
         for _ in range(max_trials):
             rand_dir = np.random.randn(d - len(V_tp1))
             rand_dir /= np.linalg.norm(rand_dir) + 1e-10
@@ -376,6 +387,43 @@ def projected_volume_update(
                 break
         if not added:
             break
+    # while len(V_tp1) < d:
+    #     # Compute perp as before
+    #     if len(V_tp1) == 0:
+    #         perp = np.eye(d)
+    #     else:
+    #         V_mat = np.stack(V_tp1).T
+    #         _, _, Vt = np.linalg.svd(V_mat, full_matrices=True)  # Note: V_mat.T svd for rows
+    #         perp = Vt[len(V_tp1):].T  # d x (d-n)
+        
+    #     # Get samples from new Cyl(S_tp1, V_tp1)
+    #     _, samples = get_centroid(S_tp1, V_tp1, d, num_samples=5000, return_samples=True)  # More samples for cov accuracy
+        
+    #     # Project samples to L_t (perp subspace): subtract proj to V_tp1
+    #     projected_samples = samples.copy()
+    #     for v in V_tp1:
+    #         proj = np.dot(samples, v)[:, np.newaxis] * v
+    #         projected_samples -= proj
+        
+    #     # Sample cov of projected (mean-center first)
+    #     mean_proj = np.mean(projected_samples, axis=0)
+    #     centered = projected_samples - mean_proj
+    #     sample_cov = np.dot(centered.T, centered) / (len(centered) - 1)
+        
+    #     # Eig decomp (use scipy.linalg.eigh for symmetric)
+    #     eigvals, eigvecs = eigh(sample_cov)
+    #     min_idx = np.argmin(eigvals)
+    #     candidate_v = eigvecs[:, min_idx]
+    #     candidate_v /= np.linalg.norm(candidate_v) + 1e-10
+        
+    #     # Compute exact diameter along candidate
+    #     diameter = diam(S_tp1, candidate_v, d)
+    #     if diameter is not None and diameter <= delta_bar:
+    #         V_tp1.append(candidate_v.copy())
+    #     else:
+    #         # Certify no thinner: if even min eig dir > delta_bar, stop
+    #         break
+    
     
     return S_tp1, V_tp1, data
 
@@ -405,6 +453,9 @@ class ProjectedVolumeLearner:
             incentive_constant=self.incentive_constant,
             **self.centroid_params
         )
+        if len(data) == 0:
+            self.is_terminated = True
+            return data
         
         new_centroid = self.get_estimate(self.centroid_params)
         self.centroids.append(new_centroid)

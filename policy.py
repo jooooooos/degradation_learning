@@ -5,6 +5,7 @@ import numpy as np
 from tqdm import tqdm
 import random
 import logging
+import torch.nn.functional as F
 
 # --- 1. Define the Neural Network for Q-Function Approximation ---
 
@@ -144,11 +145,10 @@ class ExperienceGenerator:
             if action_name == 'replace':
                 reward = self._adjust_reward(-self.params['replacement_cost'] + holding_reward, tau_next)
                 # Machine resets, calendar time and idle time start from tau_next
-                next_state_tuple = (np.zeros(self.d), customer['context'], customer['desired_duration'], tau_next, 'arrival')
+                next_state_tuple = (np.zeros(self.d), customer['context'], customer['desired_duration'], 0, 'arrival')
 
             elif action_name == 'no_replace':
                 reward = self._adjust_reward(holding_reward, tau_next)
-                machine_active_time_next = machine_active_time_prev + tau_next
                 next_state_tuple = (X_prev, customer['context'], customer['desired_duration'], machine_active_time_next, 'arrival')
             else:
                 raise ValueError(f"Invalid action {action_name} for phase {phase}")
@@ -206,7 +206,8 @@ class DPAgent:
         self.target_network.eval() # Target network is not trained directly
 
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=params['learning_rate'])
-        self.loss_fn = nn.MSELoss()
+        # self.loss_fn = nn.MSELoss()
+        self.loss_fn = nn.SmoothL1Loss(beta=1.0)
 
         # Experience generator
         self.experience_generator = ExperienceGenerator(
@@ -295,9 +296,9 @@ class DPAgent:
         print("\nTraining complete.")
         return history
 
-    def get_policy(self):
+    def get_policy(self, kwargs):
         """Returns a function that represents the learned greedy policy."""
-        def policy_fn(state):
+        def greedy_policy_fn(state):
             state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
             with torch.no_grad():
                 q_values = self.q_network(state_tensor).squeeze(0)
@@ -313,4 +314,45 @@ class DPAgent:
             best_action_idx = torch.argmax(q_subset).item()
             return valid_actions[best_action_idx]
 
+        def epsilon_greedy_policy_fn(state, current_epsilon=kwargs['epsilon']):
+            state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
+            with torch.no_grad():
+                q_values = self.q_network(state_tensor).squeeze(0)
+            
+            phase = state[-1]
+            if phase == 0.0:  # Arrival
+                valid_actions = [0, 1]  # give_price, shutdown
+            else:  # Departure
+                valid_actions = [2, 3]  # replace, no_replace
+            
+            if np.random.rand() < current_epsilon:
+                return np.random.choice(valid_actions)  # Explore
+            else:
+                q_subset = q_values[valid_actions]  # Subset for valid
+                best_idx = torch.argmax(q_subset).item()
+                return valid_actions[best_idx]  # Exploit
+
+        def softmax_policy_fn(state, current_tau=kwargs['tau']):
+            state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
+            with torch.no_grad():
+                q_values = self.q_network(state_tensor).squeeze(0)
+            
+            phase = state[-1]
+            if phase == 0.0:  # Arrival
+                valid_actions = [0, 1]  # give_price, shutdown
+            else:  # Departure
+                valid_actions = [2, 3]  # replace, no_replace
+            
+            q_subset = q_values[valid_actions]  # Q-values for valid actions only
+            probs = F.softmax(q_subset / current_tau, dim=0).cpu().numpy()  # Softmax probabilities
+            action_idx = np.random.choice(len(valid_actions), p=probs)  # Sample index
+            return valid_actions[action_idx]  # Return the selected action
+        
+        if kwargs['type'] == 'greedy':
+            policy_fn = greedy_policy_fn
+        elif kwargs['type'] == 'epsilon_greedy':
+            policy_fn = epsilon_greedy_policy_fn
+        elif kwargs['type'] == 'softmax':
+            policy_fn = softmax_policy_fn
+        
         return policy_fn

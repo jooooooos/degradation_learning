@@ -15,6 +15,8 @@ from scipy.stats import gaussian_kde
 import logging
 logging.basicConfig(level=logging.INFO)
 
+np.set_printoptions(suppress=True)
+
 # --- 1. Simulation Configuration ---
 D = 5                                  # Dimension of context vectors
 LAMBDA_VAL = 0.001                     # Baseline hazard constant
@@ -42,7 +44,7 @@ def context_sampler() -> np.ndarray:
 
 def rental_sampler() -> float:
     """Samples a customer's desired rental duration from an exponential distribution."""
-    return np.random.exponential(scale=20.0)
+    return np.random.exponential(scale=10.0)
 
 def interarrival_sampler() -> float:
     """Samples the time until the next customer arrives."""
@@ -69,7 +71,7 @@ centroid_params = {
     # 'rho_target': 0.01
 }
 
-termination_rule = lambda diameter: diameter < 0.01  # Example custom termination rule
+termination_rule = lambda diameter: diameter < 1 / NUM_CUSTOMERS  # Example custom termination rule
 
 projected_volume_learner = ProjectedVolumeLearner(
     T=NUM_CUSTOMERS, 
@@ -94,6 +96,11 @@ training_hyperparams = {
     'batch_size': 256           # Batch size for training
 }
 
+policy_params = {
+    'type': 'softmax',
+    'tau': 1.0
+}
+
 # Instantiate the Simulator with the new parameters
 simulator = Simulator(
     d=D,
@@ -109,14 +116,16 @@ simulator = Simulator(
     
     mdp_params=mdp_params,
     training_hyperparams=training_hyperparams,
+    policy_params=policy_params,
     policy_update_threshold=5,
+    time_normalize=True,
 )
 
 # --- 4. Run the Simulation ---
 # simulator.projected_volume_learner.is_terminated = True
 simulation_data = simulator.run(num_customers=NUM_CUSTOMERS)
-df = pd.DataFrame(simulation_data)
-degradation_history = pd.DataFrame(simulator.degradation_history)
+degradation_df = pd.DataFrame(simulator.degradation_history)
+simulation_df = pd.DataFrame(simulator.history)
 
 # Calculate statistics
 total_rentals = (df['feedback'] != -1).sum()
@@ -135,5 +144,44 @@ print(f"Total breakdowns observed: {total_breakdowns}")
 
 degradation_learner = DegradationLearner(d=D, initial_theta=np.zeros(D))
 
-degradation_learner.fit(df)
+degradation_learner.fit(degradation_df)
 degradation_learner.get_theta()
+
+
+
+### Training policy under perfect information
+
+class PerfectDegradationLearner:
+    def __init__(self, d, theta_true=THETA_TRUE):
+        self.d = d
+        self.theta_true = theta_true
+        self.hazard_model = usage_exp_hazard_model  # Placeholder, not used
+        
+    def get_theta(self):
+        return self.theta_true
+    
+    def cum_baseline(self, t):
+        return self.hazard_model.Lambda_0(t)
+    
+    def inverse_cum_baseline(self, u):
+        return self.hazard_model.Lambda_0_inverse(u)
+    
+perfect_degradation_learner = PerfectDegradationLearner(d=D, theta_true=THETA_TRUE)
+perfect_dpagent = DPAgent(
+    d=D,
+    u_hat=UTILITY_TRUE,
+    time_normalize=True,
+    degradation_learner=perfect_degradation_learner,
+    customer_generator=customer_gen,
+    params=mdp_params,
+)
+
+perfect_dpagent.train(
+    num_iterations=50,
+    dataset_size=50000,
+    batch_size=256
+)
+
+perfect_policy = perfect_dpagent.get_policy(
+    {'type': 'greedy'}
+)

@@ -7,6 +7,7 @@ from degradation_learner import DegradationLearner
 from policy import DPAgent
 import logging
 from tqdm import tqdm, trange
+import pickle
 
 class CustomerGenerator:
     """Generates new customers with their specific attributes."""
@@ -92,6 +93,7 @@ class Simulator:
         spontaneous_hazard_model: HazardModel=None,
         mdp_params: Dict[str, Any]=None,
         training_hyperparams: Dict[str, Any]=None,
+        policy_params: Dict[str, Any]={},
         policy_update_threshold: int=5,
         price_eps: float=1e-2,
         time_normalize: bool=False,
@@ -106,6 +108,7 @@ class Simulator:
         self.projected_volume_learner = projected_volume_learner
         self.mdp_params = mdp_params
         self.training_hyperparams = training_hyperparams
+        self.policy_params = policy_params
         self.time_normalize = time_normalize
 
         self.machine = Machine(d, pricing_r, price_eps)
@@ -130,7 +133,8 @@ class Simulator:
         self.degradation_learner = DegradationLearner(d=self.d)
         df_degradation = pd.DataFrame(self.degradation_history)
         self.degradation_learner.fit(df_degradation)
-
+        logging.info(f"Theta updated. New theta_hat: {self.degradation_learner.get_theta().round(3)}")
+        
         # 2. Instantiate and train the DP agent
         u_hat = self.projected_volume_learner.get_estimate()
         dp_agent = DPAgent(
@@ -143,9 +147,9 @@ class Simulator:
         )
         dp_agent.train(**self.training_hyperparams)
         
-        self.optimal_policy = dp_agent.get_policy()
+        self.optimal_policy = dp_agent.get_policy(self.policy_params)
         self.breakdowns_since_last_update = 0 # Reset the counter
-        logging.info(f"Policy updated. New theta_hat: {self.degradation_learner.get_theta().round(3)}")
+        logging.info(f"Policy updated.")
         
     def run(self, num_customers: int) -> List[Dict[str, Any]]:
         """Runs the simulation for a specified number of customers."""
@@ -173,6 +177,12 @@ class Simulator:
             if not is_exploration_done:
                 # 2. If not done exploring, offer price and see if customer rents
                 u_learn_data = self.projected_volume_learner.update(customer['context'], self.utility_true)
+                if len(u_learn_data) == 0:
+                    logging.warning("No data from utility learner; skipping customer.")
+                    self.history.pop()  # Remove the arrival event
+                    self.calendar_time -= customer['interarrival_time']  # Revert time
+                    continue
+                
                 rented = u_learn_data['rented']
                 profit = u_learn_data['profit']
                 event_type = "rental_during_exploration" if rented else "price_rejection_during_exploration"
@@ -291,7 +301,7 @@ class Simulator:
 
     def save(self, filepath: str):
         """Saves the simulation state to a file."""
-        import pickle
+        self.optimal_policy = None  # Policies may not be serializable
         with open(filepath, 'wb') as f:
             pickle.dump(self, f)
         logging.info(f"Simulation state saved to {filepath}.")
@@ -299,7 +309,6 @@ class Simulator:
     @staticmethod
     def load(filepath: str) -> 'Simulator':
         """Loads a simulation state from a file."""
-        import pickle
         with open(filepath, 'rb') as f:
             sim = pickle.load(f)
         logging.info(f"Simulation state loaded from {filepath}.")
