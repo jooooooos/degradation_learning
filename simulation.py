@@ -96,6 +96,7 @@ class Simulator:
         training_hyperparams: Dict[str, Any]=None,
         policy_update_threshold: int=5,
         price_eps: float=1e-2,
+        time_normalize: bool=False,
     ):
         self.d = d
         self.T = T
@@ -107,6 +108,7 @@ class Simulator:
         self.projected_volume_learner = projected_volume_learner
         self.mdp_params = mdp_params
         self.training_hyperparams = training_hyperparams
+        self.time_normalize = time_normalize
 
         self.machine = Machine(d, pricing_r, price_eps)
         self.calendar_time: float = 0.0
@@ -117,6 +119,7 @@ class Simulator:
         self.degradation_history = []
         self.policy_update_threshold = policy_update_threshold
         self.breakdowns_since_last_update = 0
+        self.seen_breakdowns = 0
         
     def _update_policy(self):
         """Trains (or re-trains) the DP Agent and updates the policy."""
@@ -135,6 +138,7 @@ class Simulator:
         dp_agent = DPAgent(
             d=self.d,
             u_hat=u_hat,
+            time_normalize=self.time_normalize,
             degradation_learner=self.degradation_learner,
             customer_generator=self.customer_generator,
             params=self.mdp_params
@@ -159,7 +163,7 @@ class Simulator:
             # Get current machine state BEFORE interaction
             X_before, I_before = self.machine.get_state_summary()
 
-            is_exploration_done = self.projected_volume_learner.is_terminated
+            is_exploration_done = self.projected_volume_learner.is_terminated and (self.seen_breakdowns > 1)
             
             if not is_exploration_done:
                 # 2. If not done exploring, offer price and see if customer rents
@@ -167,16 +171,15 @@ class Simulator:
                 rented = u_learn_data['rented']
                 profit = u_learn_data['profit']
                 
-                done, diameter = self.projected_volume_learner.check_termination(
+                _, diameter = self.projected_volume_learner.check_termination(
                     customer['context']
                 )
                 logging.info(f"Customer {i+1}: Diameter: {diameter:.4f}")
-                if done:
-                    logging.info(f"Exploration phase completed at customer {i+1}.")
-                
+
             else:
                 # Exploration is over, use the optimal policy
                 if self.optimal_policy is None:
+                    logging.info(f"Exploration phase completed at customer {i+1}.")
                     self._update_policy() # First time policy setup
 
                 arrival_state = np.concatenate([
@@ -214,11 +217,12 @@ class Simulator:
 
             remaining_hazard = self.machine.E - self.machine.cumulative_hazard
             time_to_failure = remaining_hazard / rate if rate > 0 else np.inf
-            
+
             if time_to_failure <= customer['desired_duration']:
                 feedback, observed_duration = 1, time_to_failure
                 self.machine.cumulative_hazard += rate * observed_duration
                 self.breakdowns_since_last_update += 1
+                self.seen_breakdowns += 1
             else:
                 feedback, observed_duration = 0, customer['desired_duration']
                 self.machine.cumulative_hazard += rate * observed_duration

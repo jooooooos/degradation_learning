@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import minimize, brentq
 from scipy.stats import gaussian_kde
 from scipy.integrate import quad
 import pandas as pd
@@ -107,7 +107,7 @@ class DegradationLearner:
         data['life_id'] = (data['event'].shift(1).fillna(-99) == 1).cumsum()  # 0 after breakdown
 
         x_cols = [f'X{j}' for j in range(self.d)]
-        data = pd.concat([data[['life_id', 'start', 'stop', 'event']+x_cols]], axis=1)
+        # data = pd.concat([data[['life_id', 'start', 'stop', 'event']+x_cols]], axis=1)
 
         self.fit_usage_hazard(data)
         self.fit_baseline_hazard(data)
@@ -140,6 +140,9 @@ class DegradationLearner:
         kde = gaussian_kde(times, bw_method='silverman', weights=lambda_step)
         self.kde = kde
 
+        # Set a reasonable max_time for inversion (e.g., 2x max observed time or a large default)
+        self.max_time = 2 * max(times) if len(times) > 0 else 1000.0
+
     def get_theta(self):
         return self.theta
     
@@ -166,9 +169,42 @@ class DegradationLearner:
         def lambda_0_integrand(u):
             return self.kde(u)[0]  # KDE evaluate returns array
         
-        Lambda_0_T, _ = quad(lambda_0_integrand, 0, duration, limit=100, epsabs=1e-8)  # Numerical integration
+        Lambda_0_T = self.cum_baseline(cum_usage + duration) - self.cum_baseline(cum_usage)
+        
+        # quad(lambda_0_integrand, 0, duration, limit=100, epsabs=1e-8)  # Numerical integration
         
         survival_prob = np.exp(-Lambda_0_T * exp_term)
         failure_prob = 1 - survival_prob
         
         return failure_prob
+    
+    def cum_baseline(self, t):
+            """
+            Computes the cumulative baseline hazard \hat{\Lambda}_0(t) = \int_0^t \hat{\lambda}_0(u) du.
+            
+            Args:
+                t (float): Time point (must be >= 0).
+            
+            Returns:
+                float: Integrated value.
+            """
+            if t <= 0:
+                return 0.0
+            integral, _ = quad(lambda u: self.kde(u)[0], 0, t, limit=100, epsabs=1e-8)
+            return integral
+        
+    def inverse_cum_baseline(self, y):
+            """
+            Computes the inverse \hat{\Lambda}_0^{-1}(y) = inf { t : \hat{\Lambda}_0(t) >= y }.
+            Uses brentq for root-finding.
+            
+            Args:
+                y (float): Target cumulative value (must be >= 0).
+            
+            Returns:
+                float: Time t where cum_baseline(t) = y.
+            """
+            if y <= 0:
+                return 0.0
+            # brentq finds root of cum_baseline(t) - y = 0
+            return brentq(lambda t: self.cum_baseline(t) - y, 0, self.max_time)
