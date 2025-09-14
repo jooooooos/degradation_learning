@@ -38,12 +38,10 @@ class Machine:
         self.price_eps = price_eps
         self.reset()
         
-    def reset(self):
-        self.last_breakdown_time: float = 0.0
+    def reset(self, last_breakdown_time: float=0.0):
+        self.last_breakdown_time: float = last_breakdown_time
         self.accumulated_context = np.zeros(self.d)
-        self.cumulative_idle_time = 0.0
-        self.cumulative_hazard: float = 0.0
-        self.E: float = np.random.exponential(1.0)
+        self.cumulative_active_time = 0.0
                 
     def calculate_price(self, customer_context, u_estimate=None) -> float:
         """Calculates the price for a given customer."""
@@ -51,11 +49,11 @@ class Machine:
             return customer_context @ u_estimate - self.price_eps
         return customer_context @ self.pricing_r
     
-    def record_survival(self, context, idle_time):
+    def record_survival(self, context, rental_duration):
         """Updates the accumulated context after a successful rental."""
         self.accumulated_context += context
         # self.machine_age += duration + idle_time
-        self.cumulative_idle_time += idle_time
+        self.cumulative_active_time += rental_duration
 
     def get_age(self, current_time: float) -> float:
         """Returns the machine's age since the last breakdown."""
@@ -63,7 +61,7 @@ class Machine:
 
     def get_state_summary(self):
         """Returns the core components of the machine's state."""
-        return self.accumulated_context, self.cumulative_idle_time
+        return self.accumulated_context, self.cumulative_active_time
 
 class Simulator:
     """Orchestrates the machine rental simulation."""
@@ -160,8 +158,15 @@ class Simulator:
             self.calendar_time += customer['interarrival_time']
             arrival_time = self.calendar_time
 
+            self.history.append({
+                "event_type": "customer_arrival",
+                "customer_id": i + 1,
+                "calendar_time": self.calendar_time,
+                "profit": -self.mdp_params['holding_cost_rate'] * customer['interarrival_time'],
+            })
+
             # Get current machine state BEFORE interaction
-            X_before, I_before = self.machine.get_state_summary()
+            X_before, t_before = self.machine.get_state_summary()
 
             is_exploration_done = self.projected_volume_learner.is_terminated and (self.seen_breakdowns > 1)
             
@@ -170,6 +175,7 @@ class Simulator:
                 u_learn_data = self.projected_volume_learner.update(customer['context'], self.utility_true)
                 rented = u_learn_data['rented']
                 profit = u_learn_data['profit']
+                event_type = "rental_during_exploration" if rented else "price_rejection_during_exploration"
                 
                 _, diameter = self.projected_volume_learner.check_termination(
                     customer['context']
@@ -185,7 +191,9 @@ class Simulator:
                 arrival_state = np.concatenate([
                     X_before, 
                     customer['context'], 
-                    [customer['desired_duration'], I_before, 0.0]
+                    [customer['desired_duration'], 
+                    self.machine.cumulative_active_time, 
+                    0.0]
                 ])
                 action = self.optimal_policy(arrival_state)
                 # action = 0 # temporary
@@ -199,11 +207,18 @@ class Simulator:
                 
                 rented = (np.dot(self.utility_true, customer['context']) >= price)
                 profit = price if rented else 0.0
+                
+                if rented:
+                    event_type = "rental_post_exploration"
+                elif action == 1:
+                    event_type = "shutdown"
+                else:
+                    event_type = "price_rejection_post_exploration"
             
             # --- Handle Outcome ---
             if not rented:
                 self.history.append({
-                    "event_type": "price_rejection",
+                    "event_type": event_type,
                     "customer_id": i + 1,
                     "calendar_time": arrival_time,
                     "profit": profit,
@@ -215,17 +230,17 @@ class Simulator:
             machine_age_at_rental = self.machine.get_age(arrival_time)
             rate = self.usage_hazard_model.lambda_0() * np.exp(np.dot(X_total, self.theta_true))
 
-            remaining_hazard = self.machine.E - self.machine.cumulative_hazard
+            # use true cox model to simulate time to failure
+            # TODO: if lambda_0 is not constant, use integration and inversion (not needed now as we use exponential hazard rate)
+            remaining_hazard = np.random.exponential(1.0)
             time_to_failure = remaining_hazard / rate if rate > 0 else np.inf
 
             if time_to_failure <= customer['desired_duration']:
                 feedback, observed_duration = 1, time_to_failure
-                self.machine.cumulative_hazard += rate * observed_duration
                 self.breakdowns_since_last_update += 1
                 self.seen_breakdowns += 1
             else:
                 feedback, observed_duration = 0, customer['desired_duration']
-                self.machine.cumulative_hazard += rate * observed_duration
             
             self.calendar_time += observed_duration
             self.history.append({
@@ -236,25 +251,24 @@ class Simulator:
 
             self.degradation_history.append({
                 # adjustment by idle time is necessary to get correct degradation under usage only
-                "start": machine_age_at_rental - I_before,
-                "stop": machine_age_at_rental - I_before + observed_duration,
+                "start": t_before,
+                "stop": t_before + observed_duration,
                 "event": feedback,
                 **{f"X{j}": v for j, v in enumerate(X_total)}
             })
             
             # --- Update machine state ---
             if feedback == 1:
-                self.machine.reset()
-                self.machine.last_breakdown_time = self.calendar_time
+                self.machine.reset(self.calendar_time)
             else:
-                self.machine.record_survival(customer['context'], customer['interarrival_time'])
+                self.machine.record_survival(customer['context'], customer['desired_duration'])
                 
             # --- Post-Rental Policy Decision (Replacement or Not) ---
             if is_exploration_done:
-                X_after, I_after = self.machine.get_state_summary()
+                X_after, t_after = self.machine.get_state_summary()
                 departure_state = np.concatenate([
                     X_after, np.zeros(self.d), 
-                    [0.0, I_after, 1.0]
+                    [0.0, t_after, 1.0]
                 ])
                 action = self.optimal_policy(departure_state)
                 # action = 3 # temporary

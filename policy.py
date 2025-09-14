@@ -41,23 +41,20 @@ class ExperienceGenerator:
         self.degradation_learner = degradation_learner
         self.customer_generator = customer_generator
         self.params = params
-        # self.cumulative_hazard = 0.0
-        self.E = np.random.exponential(1.0)
-        # self.cumulative_usage = 0.0
 
         # Whether to normalize rewards by elapsed time
         self.time_normalize = time_normalize
         # Action mapping
         self.ACTION_MAP = {0: 'give_price', 1: 'shutdown', 2: 'replace', 3: 'no_replace'}
 
-    def _format_state(self, X, x, T, t, cu, phase):
+    def _format_state(self, X, x, T, t, phase):
         """Standardizes the state vector representation."""
         if phase == 'arrival':
             # Full state
-            return np.concatenate([X, x, [T, t, cu, 0.0]])
+            return np.concatenate([X, x, [T, t, 0.0]])
         else: # departure
             # x and T are irrelevant
-            return np.concatenate([X, np.zeros(self.d), [0.0, t, cu, 1.0]])
+            return np.concatenate([X, np.zeros(self.d), [0.0, t, 1.0]])
 
     def _adjust_reward(self, reward, elapsed_time):
         """Adjusts the reward based on elapsed time if time normalization is enabled."""
@@ -70,7 +67,6 @@ class ExperienceGenerator:
         X_prev = state[:self.d]
         # x_curr = state[self.d : 2*self.d] # Only valid at arrival
         machine_active_time_prev = state[2*self.d + 1]
-        cum_hazard_prev = state[2*self.d + 2]
         phase = 'arrival' if state[-1] == 0.0 else 'departure'
         
         action_name = self.ACTION_MAP[action]
@@ -79,7 +75,7 @@ class ExperienceGenerator:
         if phase == 'arrival':
             if action_name == 'shutdown':
                 reward = 0  # Holding cost is realized in the next step
-                next_state_tuple = (X_prev, None, None, machine_active_time_prev, cum_hazard_prev, 'departure')
+                next_state_tuple = (X_prev, None, None, machine_active_time_prev, 'departure')
             
             elif action_name == 'give_price':
                 x_curr = state[self.d : 2*self.d] # Current customer context
@@ -87,7 +83,7 @@ class ExperienceGenerator:
                 revenue = np.dot(self.u_hat, x_curr)
                 X_total = X_prev + x_curr
                 exp_term = np.exp(np.dot(self.degradation_learner.get_theta(), X_total))
-                remaining = self.E - cum_hazard_prev
+                remaining = np.random.exponential(1.0)
                 
                 delta_max = self.degradation_learner.cum_baseline(machine_active_time_prev + T_curr) - \
                     self.degradation_learner.cum_baseline(machine_active_time_prev)
@@ -99,10 +95,9 @@ class ExperienceGenerator:
                         revenue,
                         T_curr
                     )
-                    cum_hazard_next = cum_hazard_prev + max_incremental_hazard
                     machine_active_time_next = machine_active_time_prev + T_curr
                     X_next = X_prev + x_curr
-                    next_state_tuple = (X_next, None, None, machine_active_time_next, cum_hazard_next, 'departure')
+                    next_state_tuple = (X_next, None, None, machine_active_time_next, 'departure')
                 else:  
                     # Fail, Solve for time to failure, f_i
                     """
@@ -120,21 +115,21 @@ class ExperienceGenerator:
                     try:
                         mat_plus_f = self.degradation_learner.inverse_cum_baseline(target)
                         f_i = mat_plus_f - machine_active_time_prev
-                    except valueError as e:
+                        if f_i > T_curr:
+                            logging.warning(f"Calculated failure time {f_i} exceeds rental duration {T_curr}. Treat as survival.")
+                            raise ValueError
+                    except ValueError as e:
                         logging.warning(f"Inverse cumulative hazard failed: {e}. Treat as survival")
                         reward = self._adjust_reward(revenue, T_curr)
-                        cum_hazard_next = cum_hazard_prev + max_incremental_hazard
                         machine_active_time_next = machine_active_time_prev + T_curr
                         X_next = X_prev + x_curr
-                        next_state_tuple = (X_next, None, None, machine_active_time_next, cum_hazard_next, 'departure')
+                        next_state_tuple = (X_next, None, None, machine_active_time_next, 'departure')
                     else:
                         reward = self._adjust_reward(
                             revenue - self.params['failure_cost'] - self.params['replacement_cost'],
                             f_i
-                        )
-                        self.E = np.random.exponential(1.0)  # Reset for next life
-                        
-                        next_state_tuple = (np.zeros(self.d), None, None, 0.0, 0.0, 'departure')
+                        )                        
+                        next_state_tuple = (np.zeros(self.d), None, None, 0.0, 'departure')
             else:
                  raise ValueError(f"Invalid action {action_name} for phase {phase}")
 
@@ -144,24 +139,23 @@ class ExperienceGenerator:
             customer = self.customer_generator.generate()
             tau_next = customer['interarrival_time']
             holding_reward = -self.params['holding_cost_rate'] * tau_next
-            machine_active_time_next = machine_active_time_prev + tau_next
+            machine_active_time_next = machine_active_time_prev # No change during idle
             
             if action_name == 'replace':
                 reward = self._adjust_reward(-self.params['replacement_cost'] + holding_reward, tau_next)
-                self.E = np.random.exponential(1.0)
                 # Machine resets, calendar time and idle time start from tau_next
-                next_state_tuple = (np.zeros(self.d), customer['context'], customer['desired_duration'], tau_next, 0.0, 'arrival')
+                next_state_tuple = (np.zeros(self.d), customer['context'], customer['desired_duration'], tau_next, 'arrival')
 
             elif action_name == 'no_replace':
                 reward = self._adjust_reward(holding_reward, tau_next)
                 machine_active_time_next = machine_active_time_prev + tau_next
-                next_state_tuple = (X_prev, customer['context'], customer['desired_duration'], machine_active_time_next, cum_hazard_prev, 'arrival')
+                next_state_tuple = (X_prev, customer['context'], customer['desired_duration'], machine_active_time_next, 'arrival')
             else:
                 raise ValueError(f"Invalid action {action_name} for phase {phase}")
 
         # Format the next state vector
-        X_next, x_next, T_next, t_next, cu_next, phase_next = next_state_tuple
-        next_state = self._format_state(X_next, x_next, T_next, t_next, cu_next, phase_next)
+        X_next, x_next, T_next, t_next, phase_next = next_state_tuple
+        next_state = self._format_state(X_next, x_next, T_next, t_next, phase_next)
         
         return reward, next_state
 
@@ -172,10 +166,8 @@ class ExperienceGenerator:
         # Start with a fresh machine seeing its first customer
         X, t = np.zeros(self.d), 0.0
         customer = self.customer_generator.generate()
-        self.cum_hazard = 0.0
-        self.E = np.random.exponential(1.0)
-        self.cum_usage = 0.0
-        state = self._format_state(X, customer['context'], customer['desired_duration'], t, self.cum_usage, 'arrival')
+        
+        state = self._format_state(X, customer['context'], customer['desired_duration'], t, 'arrival')
         
         print(f"Generating {num_samples} experience samples...")
         for _ in tqdm(range(num_samples)):
@@ -202,7 +194,7 @@ class DPAgent:
         self.device = torch.device(device)
         print(f"Using device: {self.device}")
 
-        self.state_dim = 2 * d + 4
+        self.state_dim = 2 * d + 3
         self.action_dim = 4 # give_price, shutdown, replace, no_replace
         self.params = params
         self.gamma = params['gamma']
