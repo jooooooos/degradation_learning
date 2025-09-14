@@ -121,8 +121,9 @@ class Simulator:
         self.policy_update_threshold = policy_update_threshold
         self.breakdowns_since_last_update = 0
         self.seen_breakdowns = 0
+        self.theta_updates = []
         
-    def _update_policy(self):
+    def _update_policy(self, customer_idx):
         """Trains (or re-trains) the DP Agent and updates the policy."""
         logging.info("Updating optimal policy...")
         if not self.degradation_history:
@@ -134,6 +135,12 @@ class Simulator:
         df_degradation = pd.DataFrame(self.degradation_history)
         self.degradation_learner.fit(df_degradation)
         logging.info(f"Theta updated. New theta_hat: {self.degradation_learner.get_theta().round(3)}")
+        self.theta_updates.append(
+            {
+                "customer_idx": customer_idx,
+                "theta_hat": self.degradation_learner.get_theta().copy()
+            }
+        )
         
         # 2. Instantiate and train the DP agent
         u_hat = self.projected_volume_learner.get_estimate()
@@ -147,6 +154,7 @@ class Simulator:
         )
         dp_agent.train(**self.training_hyperparams)
         
+        self.dp_agent = dp_agent
         self.optimal_policy = dp_agent.get_policy(self.policy_params)
         self.breakdowns_since_last_update = 0 # Reset the counter
         logging.info(f"Policy updated.")
@@ -166,7 +174,8 @@ class Simulator:
                 "event_type": "customer_arrival",
                 "customer_id": i + 1,
                 "calendar_time": self.calendar_time,
-                "profit": -self.mdp_params['holding_cost_rate'] * customer['interarrival_time'],
+                "profit": 0,
+                "loss": -self.mdp_params['holding_cost_rate'] * customer['interarrival_time'],
             })
 
             # Get current machine state BEFORE interaction
@@ -196,7 +205,7 @@ class Simulator:
                 # Exploration is over, use the optimal policy
                 if self.optimal_policy is None:
                     logging.info(f"Exploration phase completed at customer {i+1}.")
-                    self._update_policy() # First time policy setup
+                    self._update_policy(i+1) # First time policy setup
 
                 arrival_state = np.concatenate([
                     X_before, 
@@ -232,6 +241,7 @@ class Simulator:
                     "customer_id": i + 1,
                     "calendar_time": arrival_time,
                     "profit": profit,
+                    "loss": 0
                 })
                 continue
             
@@ -249,15 +259,22 @@ class Simulator:
                 feedback, observed_duration = 1, time_to_failure
                 self.breakdowns_since_last_update += 1
                 self.seen_breakdowns += 1
+                loss = -self.mdp_params['failure_cost'] - self.mdp_params['replacement_cost']
+                event_type = "failure"
             else:
                 feedback, observed_duration = 0, customer['desired_duration']
-            
-            self.calendar_time += observed_duration
+                loss = 0.0
+                event_type = "survival"
+                
             self.history.append({
-                "event_type": "rental", "customer_id": i + 1,
-                "calendar_time": arrival_time, "observed_duration": observed_duration,
-                "feedback": feedback, "profit": profit,
+                "event_type": event_type,
+                "customer_id": i + 1,
+                "calendar_time": self.calendar_time + observed_duration,
+                "profit": profit,
+                "loss": loss
             })
+                
+            self.calendar_time += observed_duration
 
             self.degradation_history.append({
                 # adjustment by idle time is necessary to get correct degradation under usage only
@@ -287,20 +304,147 @@ class Simulator:
                         "event_type": "replacement",
                         "customer_id": i + 1,
                         "calendar_time": self.calendar_time,
-                        "profit": -self.mdp_params['replacement_cost'],
+                        "profit": 0,
+                        "loss": -self.mdp_params['replacement_cost'],
                     })
                     self.machine.reset()
                     self.machine.last_breakdown_time = self.calendar_time
             
             # --- Check if policy update is needed ---
             if is_exploration_done and self.breakdowns_since_last_update >= self.policy_update_threshold:
-                self._update_policy()
+                self._update_policy(i+1)
             
         logging.info("Simulation finished.")
         return self.history
 
+    def run_full_exploit(self, num_customers: int, policy) -> List[Dict[str, Any]]:
+        """Runs the simulation for a specified number of customers."""
+        logging.info(f"Starting simulation for {num_customers} customers...")
+        machine = Machine(self.d, np.zeros(self.d))
+        calendar_time: float = 0.0
+            
+        # Pass the pricing vector 'r' to the machine
+        history = []
+        
+        pbar = tqdm(range(num_customers))
+        for i in pbar:
+            # 1. Generate a new customer
+            customer = self.customer_generator.generate()
+            calendar_time += customer['interarrival_time']
+            arrival_time = calendar_time
+
+            history.append({
+                "event_type": "customer_arrival",
+                "customer_id": i + 1,
+                "calendar_time": calendar_time,
+                "profit": 0,
+                "loss": -self.mdp_params['holding_cost_rate'] * customer['interarrival_time'],
+            })
+
+            # Get current machine state BEFORE interaction
+            X_before, t_before = machine.get_state_summary()
+
+            arrival_state = np.concatenate([
+                X_before, 
+                customer['context'], 
+                [customer['desired_duration'], 
+                machine.cumulative_active_time, 
+                0.0]
+            ])
+            action = policy(arrival_state)
+
+            price = machine.calculate_price(
+                customer['context'], 
+                self.utility_true 
+            )
+            if action == 1:
+                price += 100000.0 # Prohibitively high price to simulate shutdown
+            
+            rented = (np.dot(self.utility_true , customer['context']) >= price)
+            profit = price if rented else 0.0
+            
+            if rented:
+                event_type = "rental_post_exploration"
+            elif action == 1:
+                event_type = "shutdown"
+            else:
+                event_type = "price_rejection_post_exploration"
+            
+            # --- Handle Outcome ---
+            if not rented:
+                history.append({
+                    "event_type": event_type,
+                    "customer_id": i + 1,
+                    "calendar_time": arrival_time,
+                    "profit": profit,
+                    "loss": 0
+                })
+                continue
+            
+            # --- Rental proceeds: Calculate hazard and outcome ---
+            X_total = X_before + customer['context']
+            machine_age_at_rental = machine.get_age(arrival_time)
+            rate = self.usage_hazard_model.lambda_0() * np.exp(np.dot(X_total, self.theta_true))
+
+            # use true cox model to simulate time to failure
+            # TODO: if lambda_0 is not constant, use integration and inversion (not needed now as we use exponential hazard rate)
+            remaining_hazard = np.random.exponential(1.0)
+            time_to_failure = remaining_hazard / rate if rate > 0 else np.inf
+
+            if time_to_failure <= customer['desired_duration']:
+                feedback, observed_duration = 1, time_to_failure
+                loss = -self.mdp_params['failure_cost'] - self.mdp_params['replacement_cost']
+                event_type = "failure"
+            else:
+                feedback, observed_duration = 0, customer['desired_duration']
+                loss = 0.0
+                event_type = "survival"
+                
+            history.append({
+                "event_type": event_type,
+                "customer_id": i + 1,
+                "calendar_time": calendar_time + observed_duration,
+                "profit": profit,
+                "loss": loss
+            })
+                
+            calendar_time += observed_duration
+            
+            # --- Update machine state ---
+            if feedback == 1:
+                machine.reset(calendar_time)
+            else:
+                machine.record_survival(customer['context'], customer['desired_duration'])
+                
+            # --- Post-Rental Policy Decision (Replacement or Not) ---
+            X_after, t_after = machine.get_state_summary()
+            departure_state = np.concatenate([
+                X_after, np.zeros(self.d), 
+                [0.0, t_after, 1.0]
+            ])
+            action = policy(departure_state)
+            # action = 3 # temporary
+            if action == 2: # Replace Machine
+                history.append({
+                    "event_type": "replacement",
+                    "customer_id": i + 1,
+                    "calendar_time": calendar_time,
+                    "profit": -self.mdp_params['replacement_cost'],
+                })
+                machine.reset()
+                machine.last_breakdown_time = calendar_time
+            
+        logging.info("Simulation finished.")
+        return history
+
     def save(self, filepath: str):
         """Saves the simulation state to a file."""
+        # save state_dict of q_network
+        torch.save(
+            self.dp_agent.q_network.state_dict(), 
+            filepath + ".q_network.pth"
+        )
+        self.dp_agent = None  # Neural networks may not be serializable        
         self.optimal_policy = None  # Policies may not be serializable
         with open(filepath, 'wb') as f:
             pickle.dump(self, f)
@@ -312,4 +456,20 @@ class Simulator:
         with open(filepath, 'rb') as f:
             sim = pickle.load(f)
         logging.info(f"Simulation state loaded from {filepath}.")
+        
+        dpagent = DPAgent(
+            d=sim.d,
+            u_hat=sim.utility_true, # Placeholder, not used
+            time_normalize=sim.time_normalize,
+            degradation_learner=sim.degradation_learner,
+            customer_generator=sim.customer_generator,
+            params=sim.mdp_params
+        )
+        dpagent.q_network.load_state_dict(
+            torch.load(filepath + ".q_network.pth", map_location=dpagent.device)
+        )
+        dpagent.q_network.eval()
+        sim.dp_agent = dpagent
+        sim.optimal_policy = dpagent.get_policy(sim.policy_params)
+        
         return sim

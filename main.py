@@ -2,7 +2,9 @@ import pickle
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
+import torch
 
+from policy import DPAgent
 from simulation import Simulator, CustomerGenerator
 from hazard_models import ExponentialHazard
 from utility_learner import ProjectedVolumeLearner, diam
@@ -18,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 np.set_printoptions(suppress=True)
 
 # --- 1. Simulation Configuration ---
-D = 5                                  # Dimension of context vectors
+D = 4                                  # Dimension of context vectors
 LAMBDA_VAL = 0.001                     # Baseline hazard constant
 NUM_CUSTOMERS = 2000                   # Total number of customers to simulate, i.e. T
 
@@ -71,13 +73,13 @@ centroid_params = {
     # 'rho_target': 0.01
 }
 
-termination_rule = lambda diameter: diameter < 1 / NUM_CUSTOMERS  # Example custom termination rule
+termination_rule = lambda diameter: diameter < 0.0005  # Sufficiently equivalent condition
 
 projected_volume_learner = ProjectedVolumeLearner(
     T=NUM_CUSTOMERS, 
     d=D, 
     centroid_params=centroid_params,
-    incentive_constant=1.1,
+    incentive_constant=1.1, # Anything > 1 works due to unit ball context and utility
     termination_rule=termination_rule,
 )
 
@@ -86,19 +88,20 @@ mdp_params = {
     'failure_cost': 0.75,      # Additional penalty for in-service failure
     'holding_cost_rate': 0.02,   # Cost per unit of idle time
     'gamma': 0.999,             # Discount factor
-    'learning_rate': 1e-4,      # Learning rate for the Adam optimizer
+    'learning_rate': 1e-3,      # Learning rate for the Adam optimizer
     'target_update_freq': 10    # How often to update the target network (in iterations)
 }
 
 training_hyperparams = {
-    'num_iterations': 100, # Number of training iterations per policy update
-    'dataset_size': 50000,      # Number of transitions to generate for the offline dataset
-    'batch_size': 256           # Batch size for training
+    'num_iterations': 50, # Number of training iterations per policy update
+    'dataset_size': 500000,      # Number of transitions to generate for the offline dataset
+    'batch_size': 2048           # Batch size for training
 }
 
-policy_params = {
+policy_params = { # Irrelevant parameters are automatically ignored, but kept for clarity
     'type': 'softmax',
-    'tau': 1.0
+    'tau': 1.0,
+    'epsilon': 0.1,
 }
 
 # Instantiate the Simulator with the new parameters
@@ -166,7 +169,11 @@ class PerfectDegradationLearner:
     def inverse_cum_baseline(self, u):
         return self.hazard_model.Lambda_0_inverse(u)
     
-perfect_degradation_learner = PerfectDegradationLearner(d=D, theta_true=THETA_TRUE)
+perfect_degradation_learner = PerfectDegradationLearner(
+    d=D, 
+    theta_true=THETA_TRUE,
+    hazard_model=usage_exp_hazard_model,
+)
 perfect_dpagent = DPAgent(
     d=D,
     u_hat=UTILITY_TRUE,
@@ -176,12 +183,33 @@ perfect_dpagent = DPAgent(
     params=mdp_params,
 )
 
-perfect_dpagent.train(
-    num_iterations=50,
-    dataset_size=50000,
-    batch_size=256
+# perfect_dpagent.train(
+#     num_iterations=50,
+#     dataset_size=500000,
+#     batch_size=1024
+# )
+
+# perfect_policy = perfect_dpagent.get_policy(
+#     {'type': 'greedy'}
+# )
+
+perfect_dpagent.q_network.load_state_dict(
+    torch.load('perfect_dpagent_q_network.pth', map_location=perfect_dpagent.device)
+)
+perfect_dpagent.q_network.eval()
+
+policy = perfect_dpagent.get_policy(
+    {'type': 'greedy', 'epsilon': 0.0, 'tau': 1.0}
 )
 
-perfect_policy = perfect_dpagent.get_policy(
-    {'type': 'greedy'}
-)
+num_repeat = 10
+histories = []
+
+for _ in range(num_repeat):
+    history = simulator.run_full_exploit(10000, policy)
+    history = pd.DataFrame(history)
+    
+    history['net_profit'] = history['profit'] + history['loss']
+    # calculate cumulative profit and loss
+    history['cumulative_net_profit'] = history['net_profit'].cumsum()
+    histories.append(history)

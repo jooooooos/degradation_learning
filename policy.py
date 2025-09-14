@@ -19,11 +19,11 @@ class QNetwork(nn.Module):
             # nn.Linear(128, 128),
             # nn.ReLU(),
             # nn.Linear(128, action_dim)
-            nn.Linear(state_dim, 64),
+            nn.Linear(state_dim, 32),
             nn.ReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(32, 32),
             nn.ReLU(),
-            nn.Linear(64, action_dim)
+            nn.Linear(32, action_dim)
         )
 
     def forward(self, x):
@@ -356,3 +356,13 @@ class DPAgent:
             policy_fn = softmax_policy_fn
         
         return policy_fn
+    
+        def export_policy(self, filepath):
+            """Saves the learned Q-network to a file."""
+            torch.save(self.q_network.state_dict(), filepath)
+        
+        @staticmethod
+        def load_policy(filepath):
+            """Loads a Q-network from a file."""
+            self.q_network.load_state_dict(torch.load(filepath, map_location=self.device))
+            self.q_network.eval()
