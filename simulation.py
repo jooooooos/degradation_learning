@@ -5,6 +5,7 @@ from hazard_models import HazardModel
 from utility_learner import ProjectedVolumeLearner, diam
 from degradation_learner import DegradationLearner
 from policy import DPAgent
+from new_policy import DiscretizedDPAgent
 import logging
 from tqdm import tqdm, trange
 import pickle
@@ -82,6 +83,7 @@ class Simulator:
         
         spontaneous_hazard_model: HazardModel=None,
         mdp_params: Dict[str, Any]=None,
+        discrete_dp: bool=True,
         training_hyperparams: Dict[str, Any]=None,
         policy_type: str='greedy',
         policy_kwargs: Dict[str, Any]={},
@@ -97,6 +99,7 @@ class Simulator:
         self.customer_generator = customer_generator
         
         self.projected_volume_learner = projected_volume_learner
+        self.discrete_dp = discrete_dp
         self.mdp_params = mdp_params
         self.training_hyperparams = training_hyperparams
         self.policy_type = policy_type
@@ -137,15 +140,28 @@ class Simulator:
         
         # 2. Instantiate and train the DP agent
         u_hat = self.projected_volume_learner.get_estimate()
-        dp_agent = DPAgent(
-            d=self.d,
-            u_hat=u_hat,
-            time_normalize=self.time_normalize,
-            degradation_learner=self.degradation_learner,
-            customer_generator=self.customer_generator,
-            params=self.mdp_params
-        )
-        dp_agent.train(**self.training_hyperparams)
+        
+        if self.discrete_dp:
+            dp_agent = DiscretizedDPAgent(
+                N=self.training_hyperparams['N'], # grid sizes [cum_context, context, duration, active_time]
+                max_cumulative_context=self.training_hyperparams['max_cumulative_context'],
+                max_active_time=self.training_hyperparams['max_active_time'],
+                u_hat=u_hat,
+                degradation_learner=self.degradation_learner,
+                customer_generator=self.customer_generator,
+                params=self.mdp_params,
+            )
+            dp_agent.run_value_iteration(10000)
+        else:
+            dp_agent = DPAgent(
+                d=self.d,
+                u_hat=u_hat,
+                time_normalize=self.time_normalize,
+                degradation_learner=self.degradation_learner,
+                customer_generator=self.customer_generator,
+                params=self.mdp_params
+            )
+            dp_agent.train(**self.training_hyperparams)
         
         self.dp_agent = dp_agent
         self.optimal_policy = dp_agent.get_policy(self.policy_type)
@@ -218,6 +234,14 @@ class Simulator:
                     self.machine.cumulative_active_time, 
                     0.0]
                 ])
+                if self.discrete_dp:
+                    arrival_state = [
+                        X_before @ self.degradation_learner.get_theta(),
+                        customer['context'] @ self.degradation_learner.get_theta(),
+                        customer['desired_duration'],
+                        self.machine.cumulative_active_time
+                    ]
+                
                 action = self.optimal_policy(arrival_state, self.policy_kwargs)
                 # action = 0 # temporary
 
@@ -301,6 +325,14 @@ class Simulator:
                     X_after, np.zeros(self.d), 
                     [0.0, t_after, 1.0]
                 ])
+                if self.discrete_dp:
+                    departure_state = [
+                        X_after @ self.degradation_learner.get_theta(),
+                        0, # null
+                        0, # null
+                        self.machine.cumulative_active_time
+                    ]
+                
                 action = self.optimal_policy(departure_state, self.policy_kwargs)
                 # action = 3 # temporary
                 if action == 2: # Replace Machine
@@ -357,6 +389,13 @@ class Simulator:
                 machine.cumulative_active_time, 
                 0.0]
             ])
+            if self.discrete_dp:
+                arrival_state = [
+                    X_before @ self.degradation_learner.get_theta(),
+                    customer['context'] @ self.degradation_learner.get_theta(),
+                    customer['desired_duration'],
+                    self.machine.cumulative_active_time
+                ]
             action = policy(arrival_state, policy_kwargs)
 
             price = machine.calculate_price(
@@ -428,6 +467,14 @@ class Simulator:
                 X_after, np.zeros(self.d), 
                 [0.0, t_after, 1.0]
             ])
+            if self.discrete_dp:
+                departure_state = [
+                    X_after @ self.degradation_learner.get_theta(),
+                    0, # null
+                    0, # null
+                    self.machine.cumulative_active_time
+                ]
+            
             action = policy(departure_state, policy_kwargs)
             # action = 3 # temporary
             if action == 2: # Replace Machine
@@ -448,10 +495,14 @@ class Simulator:
     def save(self, filepath: str):
         """Saves the simulation state to a file."""
         # save state_dict of q_network
-        torch.save(
-            self.dp_agent.q_network.state_dict(), 
-            filepath + ".q_network.pth"
-        )
+        if not self.discrete_dp:
+            torch.save(
+                self.dp_agent.q_network.state_dict(), 
+                filepath + ".q_network.pth"
+            )
+        else:
+            self.dp_agent.save_policy(filepath + ".discrete_policy.pkl")
+            
         self.projected_volume_learner.termination_rule = None # Policies may not be serializable
         self.dp_agent = None  # Neural networks may not be serializable        
         self.optimal_policy = None  # Policies may not be serializable
@@ -466,18 +517,21 @@ class Simulator:
             sim = pickle.load(f)
         logging.info(f"Simulation state loaded from {filepath}.")
         
-        dpagent = DPAgent(
-            d=sim.d,
-            u_hat=sim.utility_true, # Placeholder, not used
-            time_normalize=sim.time_normalize,
-            degradation_learner=sim.degradation_learner,
-            customer_generator=sim.customer_generator,
-            params=sim.mdp_params
-        )
-        dpagent.q_network.load_state_dict(
-            torch.load(filepath + ".q_network.pth", map_location=dpagent.device)
-        )
-        dpagent.q_network.eval()
+        if not self.discrete_dp:
+            dpagent = DPAgent(
+                d=sim.d,
+                u_hat=sim.utility_true, # Placeholder, not used
+                time_normalize=sim.time_normalize,
+                degradation_learner=sim.degradation_learner,
+                customer_generator=sim.customer_generator,
+                params=sim.mdp_params
+            )
+            dpagent.q_network.load_state_dict(
+                torch.load(filepath + ".q_network.pth", map_location=dpagent.device)
+            )
+            dpagent.q_network.eval()
+        else:
+            dpagent = DiscretizedDPAgent.load_policy(filepath + ".discrete_policy.pkl")
         sim.dp_agent = dpagent
         sim.optimal_policy = dpagent.get_policy(sim.policy_type)
         
