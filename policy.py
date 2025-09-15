@@ -1,3 +1,4 @@
+import pickle
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -314,7 +315,7 @@ class DPAgent:
             best_action_idx = torch.argmax(q_subset).item()
             return valid_actions[best_action_idx]
 
-        def epsilon_greedy_policy_fn(state, current_epsilon=kwargs['epsilon']):
+        def epsilon_greedy_policy_fn(state, current_epsilon):
             state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
             with torch.no_grad():
                 q_values = self.q_network(state_tensor).squeeze(0)
@@ -332,7 +333,7 @@ class DPAgent:
                 best_idx = torch.argmax(q_subset).item()
                 return valid_actions[best_idx]  # Exploit
 
-        def softmax_policy_fn(state, current_tau=kwargs['tau']):
+        def softmax_policy_fn(state, current_tau):
             state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
             with torch.no_grad():
                 q_values = self.q_network(state_tensor).squeeze(0)
@@ -348,6 +349,12 @@ class DPAgent:
             action_idx = np.random.choice(len(valid_actions), p=probs)  # Sample index
             return valid_actions[action_idx]  # Return the selected action
         
+        def decaying_softmax_policy_fn(state, min_tau, decay_rate):
+            initial_tau = 1.0
+            min_tau = 10e-8 # very small ensuring numerical stability
+            current_tau = max(min_tau, initial_tau * (decay_rate ** step))
+            return softmax_policy_fn(state, current_tau)
+
         if kwargs['type'] == 'greedy':
             policy_fn = greedy_policy_fn
         elif kwargs['type'] == 'epsilon_greedy':
@@ -356,13 +363,21 @@ class DPAgent:
             policy_fn = softmax_policy_fn
         
         return policy_fn
+
+    def export_policy(self, filepath):
+        """Saves the learned Q-network to a file."""
+        torch.save(self.q_network.state_dict(), filepath + ".q_network.pth")
+
+        self.q_network = None
+        self.target_network = None
+        with open(filepath + '.pkl', 'wb') as f:
+            pickle.dump(self, f)
     
-        def export_policy(self, filepath):
-            """Saves the learned Q-network to a file."""
-            torch.save(self.q_network.state_dict(), filepath)
-        
-        @staticmethod
-        def load_policy(filepath):
-            """Loads a Q-network from a file."""
-            self.q_network.load_state_dict(torch.load(filepath, map_location=self.device))
-            self.q_network.eval()
+    @staticmethod
+    def load_policy(filepath):
+        """Loads a Q-network from a file."""
+        with open(filepath + '.pkl', 'rb') as f:
+            dp_agent = pickle.load(f)
+
+        dp_agent.q_network.load_state_dict(torch.load(filepath + ".q_network.pth", map_location=dp_agent.device))
+        dp_agent.q_network.eval()

@@ -8,6 +8,7 @@ from policy import DPAgent
 import logging
 from tqdm import tqdm, trange
 import pickle
+import torch
 
 class CustomerGenerator:
     """Generates new customers with their specific attributes."""
@@ -110,7 +111,7 @@ class Simulator:
         self.training_hyperparams = training_hyperparams
         self.policy_params = policy_params
         self.time_normalize = time_normalize
-
+        
         self.machine = Machine(d, pricing_r, price_eps)
         self.calendar_time: float = 0.0
         self.optimal_policy = None
@@ -122,6 +123,8 @@ class Simulator:
         self.breakdowns_since_last_update = 0
         self.seen_breakdowns = 0
         self.theta_updates = []
+        self.utility_updates = []
+        self.last_customer_idx = 0
         
     def _update_policy(self, customer_idx):
         """Trains (or re-trains) the DP Agent and updates the policy."""
@@ -172,7 +175,7 @@ class Simulator:
 
             self.history.append({
                 "event_type": "customer_arrival",
-                "customer_id": i + 1,
+                "customer_id": self.last_customer_idx + 1,
                 "calendar_time": self.calendar_time,
                 "profit": 0,
                 "loss": -self.mdp_params['holding_cost_rate'] * customer['interarrival_time'],
@@ -186,26 +189,32 @@ class Simulator:
             if not is_exploration_done:
                 # 2. If not done exploring, offer price and see if customer rents
                 u_learn_data = self.projected_volume_learner.update(customer['context'], self.utility_true)
+                
                 if len(u_learn_data) == 0:
                     logging.warning("No data from utility learner; skipping customer.")
                     self.history.pop()  # Remove the arrival event
                     self.calendar_time -= customer['interarrival_time']  # Revert time
                     continue
                 
+                centroid = u_learn_data['centroid']
                 rented = u_learn_data['rented']
                 profit = u_learn_data['profit']
                 event_type = "rental_during_exploration" if rented else "price_rejection_during_exploration"
                 
+                self.utility_updates.append({
+                    "customer_idx": self.last_customer_idx + 1,
+                    "u_hat": centroid,
+                })
                 _, diameter = self.projected_volume_learner.check_termination(
                     customer['context']
                 )
-                logging.info(f"Customer {i+1}: Diameter: {diameter:.4f}")
+                logging.info(f"Customer {self.last_customer_idx + 1}: Diameter: {diameter:.4f}")
 
             else:
                 # Exploration is over, use the optimal policy
                 if self.optimal_policy is None:
-                    logging.info(f"Exploration phase completed at customer {i+1}.")
-                    self._update_policy(i+1) # First time policy setup
+                    logging.info(f"Exploration phase completed at customer {self.last_customer_idx + 1}.")
+                    self._update_policy(self.last_customer_idx + 1) # First time policy setup
 
                 arrival_state = np.concatenate([
                     X_before, 
@@ -214,7 +223,7 @@ class Simulator:
                     self.machine.cumulative_active_time, 
                     0.0]
                 ])
-                action = self.optimal_policy(arrival_state)
+                action = self.optimal_policy(arrival_state, self.seen_breakdowns)
                 # action = 0 # temporary
 
                 price = self.machine.calculate_price(
@@ -238,7 +247,7 @@ class Simulator:
             if not rented:
                 self.history.append({
                     "event_type": event_type,
-                    "customer_id": i + 1,
+                    "customer_id": self.last_customer_idx + 1,
                     "calendar_time": arrival_time,
                     "profit": profit,
                     "loss": 0
@@ -268,7 +277,7 @@ class Simulator:
                 
             self.history.append({
                 "event_type": event_type,
-                "customer_id": i + 1,
+                "customer_id": self.last_customer_idx + 1,
                 "calendar_time": self.calendar_time + observed_duration,
                 "profit": profit,
                 "loss": loss
@@ -302,7 +311,7 @@ class Simulator:
                 if action == 2: # Replace Machine
                     self.history.append({
                         "event_type": "replacement",
-                        "customer_id": i + 1,
+                        "customer_id": self.last_customer_idx + 1,
                         "calendar_time": self.calendar_time,
                         "profit": 0,
                         "loss": -self.mdp_params['replacement_cost'],
@@ -312,7 +321,9 @@ class Simulator:
             
             # --- Check if policy update is needed ---
             if is_exploration_done and self.breakdowns_since_last_update >= self.policy_update_threshold:
-                self._update_policy(i+1)
+                self._update_policy(self.last_customer_idx + 1)
+            
+            self.last_customer_idx += 1
             
         logging.info("Simulation finished.")
         return self.history
@@ -322,7 +333,7 @@ class Simulator:
         logging.info(f"Starting simulation for {num_customers} customers...")
         machine = Machine(self.d, np.zeros(self.d))
         calendar_time: float = 0.0
-            
+        last_customer_idx = 0
         # Pass the pricing vector 'r' to the machine
         history = []
         
@@ -335,7 +346,7 @@ class Simulator:
 
             history.append({
                 "event_type": "customer_arrival",
-                "customer_id": i + 1,
+                "customer_id": last_customer_idx + 1,
                 "calendar_time": calendar_time,
                 "profit": 0,
                 "loss": -self.mdp_params['holding_cost_rate'] * customer['interarrival_time'],
@@ -374,7 +385,7 @@ class Simulator:
             if not rented:
                 history.append({
                     "event_type": event_type,
-                    "customer_id": i + 1,
+                    "customer_id": last_customer_idx + 1,
                     "calendar_time": arrival_time,
                     "profit": profit,
                     "loss": 0
@@ -402,7 +413,7 @@ class Simulator:
                 
             history.append({
                 "event_type": event_type,
-                "customer_id": i + 1,
+                "customer_id": last_customer_idx + 1,
                 "calendar_time": calendar_time + observed_duration,
                 "profit": profit,
                 "loss": loss
@@ -427,12 +438,14 @@ class Simulator:
             if action == 2: # Replace Machine
                 history.append({
                     "event_type": "replacement",
-                    "customer_id": i + 1,
+                    "customer_id": last_customer_idx + 1,
                     "calendar_time": calendar_time,
                     "profit": -self.mdp_params['replacement_cost'],
                 })
                 machine.reset()
                 machine.last_breakdown_time = calendar_time
+            
+            last_customer_idx += 1
             
         logging.info("Simulation finished.")
         return history
@@ -444,16 +457,17 @@ class Simulator:
             self.dp_agent.q_network.state_dict(), 
             filepath + ".q_network.pth"
         )
+        self.projected_volume_learner.termination_rule = None # Policies may not be serializable
         self.dp_agent = None  # Neural networks may not be serializable        
         self.optimal_policy = None  # Policies may not be serializable
-        with open(filepath, 'wb') as f:
+        with open(filepath + '.pkl', 'wb') as f:
             pickle.dump(self, f)
         logging.info(f"Simulation state saved to {filepath}.")
 
     @staticmethod
     def load(filepath: str) -> 'Simulator':
         """Loads a simulation state from a file."""
-        with open(filepath, 'rb') as f:
+        with open(filepath + '.pkl', 'rb') as f:
             sim = pickle.load(f)
         logging.info(f"Simulation state loaded from {filepath}.")
         
