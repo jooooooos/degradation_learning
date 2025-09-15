@@ -67,17 +67,6 @@ class Machine:
 
 class Simulator:
     """Orchestrates the machine rental simulation."""
-    # def __init__(
-    #     self,
-    #     d: int,
-    #     T,
-    #     theta: np.ndarray,
-    #     utility_true: np.ndarray,
-    #     pricing_r: np.ndarray,
-    #     hazard_model: HazardModel,
-    #     customer_generator: CustomerGenerator,
-    #     projected_volume_learner: ProjectedVolumeLearner=None,
-    # ):
     def __init__(
         self,
         T: int,
@@ -94,7 +83,8 @@ class Simulator:
         spontaneous_hazard_model: HazardModel=None,
         mdp_params: Dict[str, Any]=None,
         training_hyperparams: Dict[str, Any]=None,
-        policy_params: Dict[str, Any]={},
+        policy_type: str='greedy',
+        policy_kwargs: Dict[str, Any]={},
         policy_update_threshold: int=5,
         price_eps: float=1e-2,
         time_normalize: bool=False,
@@ -109,14 +99,14 @@ class Simulator:
         self.projected_volume_learner = projected_volume_learner
         self.mdp_params = mdp_params
         self.training_hyperparams = training_hyperparams
-        self.policy_params = policy_params
+        self.policy_type = policy_type
+        self.policy_kwargs = policy_kwargs
         self.time_normalize = time_normalize
         
         self.machine = Machine(d, pricing_r, price_eps)
         self.calendar_time: float = 0.0
         self.optimal_policy = None
             
-        # Pass the pricing vector 'r' to the machine
         self.history = []
         self.degradation_history = []
         self.policy_update_threshold = policy_update_threshold
@@ -158,8 +148,13 @@ class Simulator:
         dp_agent.train(**self.training_hyperparams)
         
         self.dp_agent = dp_agent
-        self.optimal_policy = dp_agent.get_policy(self.policy_params)
+        self.optimal_policy = dp_agent.get_policy(self.policy_type)
         self.breakdowns_since_last_update = 0 # Reset the counter
+
+        # increment step for decaying softmax policy
+        # decay dependent on # of policy retrains
+        self.policy_kwargs['step'] = self.policy_kwargs.get('step', 0) + 1
+
         logging.info(f"Policy updated.")
         
     def run(self, num_customers: int) -> List[Dict[str, Any]]:
@@ -223,7 +218,7 @@ class Simulator:
                     self.machine.cumulative_active_time, 
                     0.0]
                 ])
-                action = self.optimal_policy(arrival_state, self.seen_breakdowns)
+                action = self.optimal_policy(arrival_state, self.policy_kwargs)
                 # action = 0 # temporary
 
                 price = self.machine.calculate_price(
@@ -306,7 +301,7 @@ class Simulator:
                     X_after, np.zeros(self.d), 
                     [0.0, t_after, 1.0]
                 ])
-                action = self.optimal_policy(departure_state)
+                action = self.optimal_policy(departure_state, self.policy_kwargs)
                 # action = 3 # temporary
                 if action == 2: # Replace Machine
                     self.history.append({
@@ -328,7 +323,7 @@ class Simulator:
         logging.info("Simulation finished.")
         return self.history
 
-    def run_full_exploit(self, num_customers: int, policy) -> List[Dict[str, Any]]:
+    def run_full_exploit(self, num_customers: int, policy, policy_kwargs) -> List[Dict[str, Any]]:
         """Runs the simulation for a specified number of customers."""
         logging.info(f"Starting simulation for {num_customers} customers...")
         machine = Machine(self.d, np.zeros(self.d))
@@ -362,7 +357,7 @@ class Simulator:
                 machine.cumulative_active_time, 
                 0.0]
             ])
-            action = policy(arrival_state)
+            action = policy(arrival_state, policy_kwargs)
 
             price = machine.calculate_price(
                 customer['context'], 
@@ -433,7 +428,7 @@ class Simulator:
                 X_after, np.zeros(self.d), 
                 [0.0, t_after, 1.0]
             ])
-            action = policy(departure_state)
+            action = policy(departure_state, policy_kwargs)
             # action = 3 # temporary
             if action == 2: # Replace Machine
                 history.append({
@@ -484,6 +479,6 @@ class Simulator:
         )
         dpagent.q_network.eval()
         sim.dp_agent = dpagent
-        sim.optimal_policy = dpagent.get_policy(sim.policy_params)
+        sim.optimal_policy = dpagent.get_policy(sim.policy_type)
         
         return sim

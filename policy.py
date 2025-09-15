@@ -297,9 +297,9 @@ class DPAgent:
         print("\nTraining complete.")
         return history
 
-    def get_policy(self, kwargs):
+    def get_policy(self, type):
         """Returns a function that represents the learned greedy policy."""
-        def greedy_policy_fn(state):
+        def greedy_policy_fn(state, kwargs={}):
             state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
             with torch.no_grad():
                 q_values = self.q_network(state_tensor).squeeze(0)
@@ -315,7 +315,7 @@ class DPAgent:
             best_action_idx = torch.argmax(q_subset).item()
             return valid_actions[best_action_idx]
 
-        def epsilon_greedy_policy_fn(state, current_epsilon):
+        def epsilon_greedy_policy_fn(state, kwargs={'current_epsilon': 0.1}):
             state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
             with torch.no_grad():
                 q_values = self.q_network(state_tensor).squeeze(0)
@@ -326,14 +326,20 @@ class DPAgent:
             else:  # Departure
                 valid_actions = [2, 3]  # replace, no_replace
             
-            if np.random.rand() < current_epsilon:
+            if np.random.rand() < kwargs['current_epsilon']:
                 return np.random.choice(valid_actions)  # Explore
             else:
                 q_subset = q_values[valid_actions]  # Subset for valid
                 best_idx = torch.argmax(q_subset).item()
                 return valid_actions[best_idx]  # Exploit
 
-        def softmax_policy_fn(state, current_tau):
+        def decaying_epsilon_greedy_fn(state, kwargs={'decay_rate': 0.99, 'step': 0}):
+            initial_epsilon = 0.1
+            min_epsilon = 0.01
+            current_epsilon = max(min_epsilon, initial_epsilon * (kwargs['decay_rate'] ** kwargs['step']))
+            return epsilon_greedy_policy_fn(state, {'current_epsilon': current_epsilon})
+
+        def softmax_policy_fn(state, kwargs={'tau': 1.0}):
             state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
             with torch.no_grad():
                 q_values = self.q_network(state_tensor).squeeze(0)
@@ -345,23 +351,27 @@ class DPAgent:
                 valid_actions = [2, 3]  # replace, no_replace
             
             q_subset = q_values[valid_actions]  # Q-values for valid actions only
-            probs = F.softmax(q_subset / current_tau, dim=0).cpu().numpy()  # Softmax probabilities
+            probs = F.softmax(q_subset / kwargs['tau'], dim=0).cpu().numpy()  # Softmax probabilities
             action_idx = np.random.choice(len(valid_actions), p=probs)  # Sample index
             return valid_actions[action_idx]  # Return the selected action
         
-        def decaying_softmax_policy_fn(state, min_tau, decay_rate):
+        def decaying_softmax_policy_fn(state, kwargs={'decay_rate': 0.99, 'step': 0}):
             initial_tau = 1.0
             min_tau = 10e-8 # very small ensuring numerical stability
-            current_tau = max(min_tau, initial_tau * (decay_rate ** step))
-            return softmax_policy_fn(state, current_tau)
+            current_tau = max(min_tau, initial_tau * (kwargs['decay_rate'] ** kwargs['step']))
+            return softmax_policy_fn(state, {'tau': current_tau})
 
-        if kwargs['type'] == 'greedy':
+        if type == 'greedy':
             policy_fn = greedy_policy_fn
-        elif kwargs['type'] == 'epsilon_greedy':
+        elif type == 'epsilon_greedy':
             policy_fn = epsilon_greedy_policy_fn
-        elif kwargs['type'] == 'softmax':
+        elif type == 'decaying_epsilon_greedy':
+            policy_fn = decaying_epsilon_greedy_fn
+        elif type == 'softmax':
             policy_fn = softmax_policy_fn
-        
+        elif type == 'decaying_softmax':
+            policy_fn = decaying_softmax_policy_fn
+
         return policy_fn
 
     def export_policy(self, filepath):
