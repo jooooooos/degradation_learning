@@ -137,7 +137,7 @@ class DiscretizedDPAgent:
         idx_t = np.argmin(np.abs(self.grids[3] - t))
         return idx_cc, idx_cx, idx_T, idx_t
 
-    def _precompute_dynamics(self, num_samples=10000):
+    def _precompute_dynamics(self, num_samples=50000):
         """
         Pre-computes dynamics, including the expected revenue for each cx bin.
         """
@@ -246,9 +246,9 @@ class DiscretizedDPAgent:
             print("\nValue iteration finished (max iterations reached).")
         return history
 
-    def get_policy(self, nothing):
+    def get_policy(self, type):
         """Returns a function that represents the learned greedy policy."""
-        def policy_fn(state, policy_kwargs):
+        def greedy_policy_fn(state, policy_kwargs):
             """
             Args:
                 state (tuple): (cum_context, cust_context, duration, active_time, phase).
@@ -261,6 +261,29 @@ class DiscretizedDPAgent:
             else: # Departure
                 idx_cc, _, _, idx_t = indices
                 return self.policy_departure[idx_cc, idx_t]
+        
+        def epsilon_greedy_policy_fn(state, kwargs={'current_epsilon': 0.1}):
+            epsilon = kwargs.get('current_epsilon', 0.1)
+            if np.random.rand() < epsilon:
+                return np.random.choice([0, 1]) if state[4] == 0 else np.random.choice([2, 3])
+            else:
+                return greedy_policy_fn(state, kwargs)
+        
+        def decaying_epsilon_greedy_fn(state, kwargs={'current_epsilon': 0.1,'decay_rate': 0.99, 'step': 0}):
+            initial_epsilon = kwargs.get('current_epsilon', 0.1)
+            min_epsilon = 0.001
+            current_epsilon = max(min_epsilon, initial_epsilon * (kwargs['decay_rate'] ** kwargs['step']))
+            if np.random.rand() < current_epsilon:
+                return np.random.choice([0, 1]) if state[4] == 0 else np.random.choice([2, 3])
+            else:
+                return greedy_policy_fn(state, kwargs)
+
+        if type == 'greedy':
+            policy_fn = greedy_policy_fn
+        elif type == 'epsilon_greedy':
+            policy_fn = epsilon_greedy_policy_fn
+        elif type == 'decaying_epsilon_greedy':
+            policy_fn = decaying_epsilon_greedy_fn
         return policy_fn
 
     def save_policy(self, filepath):

@@ -335,7 +335,7 @@ class DPAgent:
 
         def decaying_epsilon_greedy_fn(state, kwargs={'decay_rate': 0.99, 'step': 0}):
             initial_epsilon = 0.1
-            min_epsilon = 0.01
+            min_epsilon = 0.001
             current_epsilon = max(min_epsilon, initial_epsilon * (kwargs['decay_rate'] ** kwargs['step']))
             return epsilon_greedy_policy_fn(state, {'current_epsilon': current_epsilon})
 

@@ -179,19 +179,34 @@ class DegradationLearner:
         return failure_prob
     
     def cum_baseline(self, t):
-            """
-            Computes the cumulative baseline hazard \hat{\Lambda}_0(t) = \int_0^t \hat{\lambda}_0(u) du.
-            
-            Args:
-                t (float): Time point (must be >= 0).
-            
-            Returns:
-                float: Integrated value.
-            """
+        """
+        Computes the cumulative baseline hazard \hat{\Lambda}_0(t) = \int_0^t \hat{\lambda}_0(u) du.
+        
+        Args:
+            t (float): Time point (must be >= 0).
+        
+        Returns:
+            float: Integrated value.
+        """
+        if isinstance(t, np.ndarray):
+            res = []
+            for e in t:
+                if e <= 0:
+                    integral = 0
+                else:
+                    integral, _ = quad(lambda u: self.kde(u)[0], 0,
+                        e, limit=100, epsabs=1e-8
+                    )
+                res.append(integral)
+            res = np.array(res)
+        else:
             if t <= 0:
-                return 0.0
-            integral, _ = quad(lambda u: self.kde(u)[0], 0, t, limit=100, epsabs=1e-8)
-            return integral
+                res = 0
+            else:
+                res, _ = quad(lambda u: self.kde(u)[0], 0,
+                    t, limit=100, epsabs=1e-8
+                )
+        return res
         
     def inverse_cum_baseline(self, y):
             """

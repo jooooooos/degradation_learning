@@ -5,7 +5,7 @@ from hazard_models import HazardModel
 from utility_learner import ProjectedVolumeLearner, diam
 from degradation_learner import DegradationLearner
 from policy import DPAgent
-from new_policy import DiscretizedDPAgent
+from new_new_policy import DiscretizedDPAgent
 import logging
 from tqdm import tqdm, trange
 import pickle
@@ -145,13 +145,13 @@ class Simulator:
             dp_agent = DiscretizedDPAgent(
                 N=self.training_hyperparams['N'], # grid sizes [cum_context, context, duration, active_time]
                 max_cumulative_context=self.training_hyperparams['max_cumulative_context'],
-                max_active_time=self.training_hyperparams['max_active_time'],
+                # max_active_time=self.training_hyperparams['max_active_time'],
                 u_hat=u_hat,
                 degradation_learner=self.degradation_learner,
                 customer_generator=self.customer_generator,
                 params=self.mdp_params,
             )
-            dp_agent.run_value_iteration(10000)
+            dp_agent.run_value_iteration(self.training_hyperparams['num_value_iterations'])
         else:
             dp_agent = DPAgent(
                 d=self.d,
@@ -239,7 +239,8 @@ class Simulator:
                         X_before @ self.degradation_learner.get_theta(),
                         customer['context'] @ self.degradation_learner.get_theta(),
                         customer['desired_duration'],
-                        self.machine.cumulative_active_time
+                        self.machine.cumulative_active_time,
+                        0.0
                     ]
                 
                 action = self.optimal_policy(arrival_state, self.policy_kwargs)
@@ -330,7 +331,8 @@ class Simulator:
                         X_after @ self.degradation_learner.get_theta(),
                         0, # null
                         0, # null
-                        self.machine.cumulative_active_time
+                        self.machine.cumulative_active_time,
+                        1.0
                     ]
                 
                 action = self.optimal_policy(departure_state, self.policy_kwargs)
@@ -394,7 +396,8 @@ class Simulator:
                     X_before @ self.degradation_learner.get_theta(),
                     customer['context'] @ self.degradation_learner.get_theta(),
                     customer['desired_duration'],
-                    self.machine.cumulative_active_time
+                    self.machine.cumulative_active_time,
+                    0.0
                 ]
             action = policy(arrival_state, policy_kwargs)
 
@@ -472,7 +475,8 @@ class Simulator:
                     X_after @ self.degradation_learner.get_theta(),
                     0, # null
                     0, # null
-                    self.machine.cumulative_active_time
+                    self.machine.cumulative_active_time,
+                    1.0
                 ]
             
             action = policy(departure_state, policy_kwargs)
@@ -482,7 +486,8 @@ class Simulator:
                     "event_type": "replacement",
                     "customer_id": last_customer_idx + 1,
                     "calendar_time": calendar_time,
-                    "profit": -self.mdp_params['replacement_cost'],
+                    "profit": 0,
+                    "loss": -self.mdp_params['replacement_cost'],
                 })
                 machine.reset()
                 machine.last_breakdown_time = calendar_time
@@ -517,7 +522,7 @@ class Simulator:
             sim = pickle.load(f)
         logging.info(f"Simulation state loaded from {filepath}.")
         
-        if not self.discrete_dp:
+        if not sim.discrete_dp:
             dpagent = DPAgent(
                 d=sim.d,
                 u_hat=sim.utility_true, # Placeholder, not used
