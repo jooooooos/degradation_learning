@@ -238,8 +238,8 @@ class Simulator:
                     arrival_state = [
                         X_before @ self.degradation_learner.get_theta(),
                         customer['context'] @ self.degradation_learner.get_theta(),
+                        customer['context'] @ self.projected_volume_learner.get_estimate(),
                         customer['desired_duration'],
-                        self.machine.cumulative_active_time,
                         0.0
                     ]
                 
@@ -331,7 +331,7 @@ class Simulator:
                         X_after @ self.degradation_learner.get_theta(),
                         0, # null
                         0, # null
-                        self.machine.cumulative_active_time,
+                        0,
                         1.0
                     ]
                 
@@ -357,7 +357,7 @@ class Simulator:
         logging.info("Simulation finished.")
         return self.history
 
-    def run_full_exploit(self, num_customers: int, policy, policy_kwargs) -> List[Dict[str, Any]]:
+    def run_full_exploit(self, num_customers, policy, degradation_learner, policy_kwargs) -> List[Dict[str, Any]]:
         """Runs the simulation for a specified number of customers."""
         logging.info(f"Starting simulation for {num_customers} customers...")
         machine = Machine(self.d, np.zeros(self.d))
@@ -393,10 +393,10 @@ class Simulator:
             ])
             if self.discrete_dp:
                 arrival_state = [
-                    X_before @ self.degradation_learner.get_theta(),
-                    customer['context'] @ self.degradation_learner.get_theta(),
+                    X_before @ degradation_learner.get_theta(),
+                    customer['context'] @ degradation_learner.get_theta(),
+                    customer['context'] @ self.utility_true,
                     customer['desired_duration'],
-                    self.machine.cumulative_active_time,
                     0.0
                 ]
             action = policy(arrival_state, policy_kwargs)
@@ -472,7 +472,7 @@ class Simulator:
             ])
             if self.discrete_dp:
                 departure_state = [
-                    X_after @ self.degradation_learner.get_theta(),
+                    X_after @ degradation_learner.get_theta(),
                     0, # null
                     0, # null
                     self.machine.cumulative_active_time,
