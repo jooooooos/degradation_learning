@@ -6,7 +6,6 @@ channels:
   - https://repo.anaconda.com/pkgs/r
 dependencies:
   - anyio=4.6.2
-  - appnope=0.1.2
   - argon2-cffi=21.3.0
   - argon2-cffi-bindings=21.2.0
   - asttokens=2.0.5
@@ -93,8 +92,6 @@ dependencies:
   - libedit=3.1.20230828
   - libev=4.33
   - libffi=3.4.4
-  - libgfortran=5.0.0
-  - libgfortran5=11.3.0
   - libglib=2.78.4
   - libiconv=1.16
   - libjpeg-turbo=2.0.0
@@ -193,8 +190,6 @@ dependencies:
   - tinycss2=1.2.1
   - tk=8.6.14
   - tomli=2.0.1
-  - torchaudio=2.5.0.dev20241118
-  - torchvision=0.20.0.dev20241118
   - tornado=6.4.1
   - tqdm=4.66.5
   - traitlets=5.14.3
