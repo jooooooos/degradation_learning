@@ -476,7 +476,7 @@ class ProjectedVolumeLearner:
         diameter = diam(self.S_t, norm_context, self.d)
         
         if self.termination_rule is None:
-            done =  diameter < 1 / self.T
+            done = diameter < 1 / self.T
         else:
             done = self.termination_rule(diameter)
         

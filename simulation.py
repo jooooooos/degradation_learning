@@ -5,7 +5,8 @@ from hazard_models import HazardModel
 from utility_learner import ProjectedVolumeLearner, diam
 from degradation_learner import DegradationLearner
 from policy import DPAgent
-from new_new_policy import DiscretizedDPAgent
+# from new_new_policy import DiscretizedDPAgent
+from discrete_policy import DiscretizedDPAgent
 import logging
 from tqdm import tqdm, trange
 import pickle
@@ -145,7 +146,6 @@ class Simulator:
             dp_agent = DiscretizedDPAgent(
                 N=self.training_hyperparams['N'], # grid sizes [cum_context, context, duration, active_time]
                 max_cumulative_context=self.training_hyperparams['max_cumulative_context'],
-                # max_active_time=self.training_hyperparams['max_active_time'],
                 u_hat=u_hat,
                 degradation_learner=self.degradation_learner,
                 customer_generator=self.customer_generator,
@@ -228,7 +228,7 @@ class Simulator:
                     self._update_policy(self.last_customer_idx + 1) # First time policy setup
 
                 arrival_state = np.concatenate([
-                    X_before, 
+                    X_before,
                     customer['context'], 
                     [customer['desired_duration'], 
                     self.machine.cumulative_active_time, 
@@ -240,6 +240,7 @@ class Simulator:
                         customer['context'] @ self.degradation_learner.get_theta(),
                         customer['context'] @ self.projected_volume_learner.get_estimate(),
                         customer['desired_duration'],
+                        self.machine.cumulative_active_time, 
                         0.0
                     ]
                 
@@ -332,6 +333,7 @@ class Simulator:
                         0, # null
                         0, # null
                         0,
+                        self.machine.cumulative_active_time,
                         1.0
                     ]
                 
@@ -385,8 +387,7 @@ class Simulator:
             X_before, t_before = machine.get_state_summary()
 
             arrival_state = np.concatenate([
-                X_before, 
-                customer['context'], 
+                X_before + customer['context'], 
                 [customer['desired_duration'], 
                 machine.cumulative_active_time, 
                 0.0]
@@ -397,8 +398,10 @@ class Simulator:
                     customer['context'] @ degradation_learner.get_theta(),
                     customer['context'] @ self.utility_true,
                     customer['desired_duration'],
+                    machine.cumulative_active_time,
                     0.0
                 ]
+                
             action = policy(arrival_state, policy_kwargs)
 
             price = machine.calculate_price(
@@ -475,7 +478,8 @@ class Simulator:
                     X_after @ degradation_learner.get_theta(),
                     0, # null
                     0, # null
-                    self.machine.cumulative_active_time,
+                    0, # null
+                    machine.cumulative_active_time,
                     1.0
                 ]
             

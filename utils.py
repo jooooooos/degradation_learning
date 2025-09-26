@@ -1,6 +1,6 @@
 import numpy as np
 
-def unit_ball_rejection_sample(d):
+def unit_ball_sample(d):
     while True:
         x = np.random.randn(d)
         if np.linalg.norm(x) <= 1:
