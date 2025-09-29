@@ -42,10 +42,10 @@ def _solve_s_optimization(S, x, d, sense):
         if m.status == GRB.OPTIMAL:
             return m.ObjVal
         else:
-            print(f"Optimization failed with status: {m.status}")
+            logging.info(f"Optimization failed with status: {m.status}")
             return None
     except gp.GurobiError as e:
-        print(f"Error code {e.errno}: {e}")
+        logging.info(f"Error code {e.errno}: {e}")
         return None
 
 def diam(S, x, d):

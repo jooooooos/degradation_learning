@@ -1,19 +1,19 @@
 import numpy as np
 import pandas as pd
 
-from neural_policy import DPAgent
+from raas.neural_policy import DPAgent
 # from discrete_policy import DiscretizedDPAgent
-from simulation import Simulator, CustomerGenerator
-from hazard_models import ExponentialHazard
-from utility_learner import ProjectedVolumeLearner
-# from degradation_learner import DegradationLearner
+from raas.simulation import Simulator, CustomerGenerator
+from raas.hazard_models import ExponentialHazard
+from raas.utility_learner import ProjectedVolumeLearner
+# from raas.degradation_learner import DegradationLearner
 from datetime import datetime
 from pytz import timezone
 
 import logging
 logging.basicConfig(level=logging.INFO)
 
-from config import (
+from raas.config import (
     context_sampler,
     rental_sampler,
     interarrival_sampler,
@@ -36,7 +36,6 @@ from config import (
     policy_kwargs,
 )
 
-np.set_printoptions(suppress=True)
 
 if __name__ == "__main__":
     # --------------------------------------------------------------------------- #

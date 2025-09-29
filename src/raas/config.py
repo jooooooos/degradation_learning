@@ -1,5 +1,5 @@
 import numpy as np
-from utils import unit_ball_sample
+from raas.utils import unit_ball_sample
 
 def context_sampler() -> np.ndarray:
     """Samples a customer's context vector uniformly from the unit ball."""

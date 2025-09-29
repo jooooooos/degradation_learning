@@ -2,6 +2,7 @@ import numpy as np
 from tqdm import tqdm
 import pickle
 from numba import jit, prange
+import logging
 
 @jit(nopython=True)
 def _get_state_indices_numba(cc, cx, cu, T, t, grids_0, grids_1, grids_2, grids_3, grids_4):
@@ -119,12 +120,12 @@ class DiscretizedDPAgent:
             np.linspace(0, self.grid_max_vals[4], self.grid_sizes[4])  # Added grid for t
         ]
         
-        print("Discretization setup:")
-        print(f"  - Cumulative Context (cc):    {self.grid_sizes[0]} steps up to {self.grid_max_vals[0]:.2f}")
-        print(f"  - Cust. Degradation (cx):     {self.grid_sizes[1]} steps up to {self.grid_max_vals[1]:.2f}")
-        print(f"  - Cust. Revenue (cu):         {self.grid_sizes[2]} steps up to {self.grid_max_vals[2]:.2f}")
-        print(f"  - Rental Duration (T):        {self.grid_sizes[3]} steps up to {self.grid_max_vals[3]:.2f} (99.95th percentile)")
-        print(f"  - Active Time (t):            {self.grid_sizes[4]} steps up to {self.grid_max_vals[4]:.2f}")
+        logging.info("Discretization setup:")
+        logging.info(f"  - Cumulative Context (cc):    {self.grid_sizes[0]} steps up to {self.grid_max_vals[0]:.2f}")
+        logging.info(f"  - Cust. Degradation (cx):     {self.grid_sizes[1]} steps up to {self.grid_max_vals[1]:.2f}")
+        logging.info(f"  - Cust. Revenue (cu):         {self.grid_sizes[2]} steps up to {self.grid_max_vals[2]:.2f}")
+        logging.info(f"  - Rental Duration (T):        {self.grid_sizes[3]} steps up to {self.grid_max_vals[3]:.2f} (99.95th percentile)")
+        logging.info(f"  - Active Time (t):            {self.grid_sizes[4]} steps up to {self.grid_max_vals[4]:.2f}")
 
     def _get_state_indices(self, state_values):
         """Finds the nearest indices for a given continuous state vector."""
@@ -138,7 +139,7 @@ class DiscretizedDPAgent:
     
     def _precompute_dynamics(self, num_samples=100000):
         """Pre-computes dynamics for the state space."""
-        print(f"Pre-computing expectations from {num_samples} customer samples...")
+        logging.info(f"Pre-computing expectations from {num_samples} customer samples...")
         
         sampled_customer_indices = []
         for _ in range(num_samples):
@@ -168,18 +169,18 @@ class DiscretizedDPAgent:
                 T_val = self.grids[3][idx_T]
                 Delta_Lambda[idx_t, idx_T] = self.degradation_learner.cum_baseline(t_val + T_val) - self.degradation_learner.cum_baseline(t_val)
         
-        print("Starting Numba-accelerated pre-computation of arrival dynamics...")
+        logging.info("Starting Numba-accelerated pre-computation of arrival dynamics...")
         _precompute_arrival_dynamics_numba(
             self.R_arrival, self.P_survival, self.Next_cc_idx, self.Next_t_idx,
             tuple(self.grids), self.grid_shape,
             Delta_Lambda,
             self.params['failure_cost'], self.params['replacement_cost'],
         )
-        print("Pre-computation complete. ✅")
+        logging.info("Pre-computation complete. ✅")
 
     def run_value_iteration(self, num_iterations, tolerance=1e-4):
         """Performs value iteration on the state space."""
-        print("\nStarting Value Iteration...")
+        logging.info("\nStarting Value Iteration...")
         history = {'delta': []}
         for i in range(num_iterations):
             # --- 1. Update Departure State Values (2D array) --- 
@@ -228,14 +229,14 @@ class DiscretizedDPAgent:
             )
             history['delta'].append(delta)
             if (i + 1) % 10 == 0:
-                print(f"Iteration {i+1}/{num_iterations} | Max Change (Delta): {delta:.6f}")
+                logging.info(f"Iteration {i+1}/{num_iterations} | Max Change (Delta): {delta:.6f}")
             
             if delta < tolerance:
-                print(f"\nValue iteration converged after {i+1} iterations. ✨")
+                logging.info(f"\nValue iteration converged after {i+1} iterations. ✨")
                 break
         
         if i == num_iterations - 1:
-            print("\nValue iteration finished (max iterations reached).")
+            logging.info("\nValue iteration finished (max iterations reached).")
         return history
 
     def get_policy(self, type):
@@ -292,7 +293,7 @@ class DiscretizedDPAgent:
         }
         with open(filepath, 'wb') as f:
             pickle.dump(policy_data, f)
-        print(f"Policy saved to {filepath}")
+        logging.info(f"Policy saved to {filepath}")
 
     @staticmethod
     def load_policy(filepath):

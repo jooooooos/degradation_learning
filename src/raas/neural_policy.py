@@ -170,7 +170,7 @@ class ExperienceGenerator:
         
         state = self._format_state(X, customer['context'], customer['desired_duration'], t, 'arrival')
         
-        print(f"Generating {num_samples} experience samples...")
+        logging.info(f"Generating {num_samples} experience samples...")
         for _ in tqdm(range(num_samples)):
             phase_val = state[-1]
             valid_actions = [0, 1] if phase_val == 0.0 else [2, 3]
@@ -193,7 +193,7 @@ class DPAgent:
         device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
 
         self.device = torch.device(device)
-        print(f"Using device: {self.device}")
+        logging.info(f"Using device: {self.device}")
 
         self.state_dim = 2 * d + 3
         self.action_dim = 4 # give_price, shutdown, replace, no_replace
@@ -253,7 +253,7 @@ class DPAgent:
         # History tracking
         history = {'loss': [], 'avg_q_value': []}
 
-        print("\nStarting FQI training loop...")
+        logging.info("\nStarting FQI training loop...")
         pbar = tqdm(range(num_iterations))
         for i in pbar:
             # Create a DataLoader for batching
@@ -294,7 +294,7 @@ class DPAgent:
             if (i + 1) % self.params['target_update_freq'] == 0:
                 self.target_network.load_state_dict(self.q_network.state_dict())
                 
-        print("\nTraining complete.")
+        logging.info("\nTraining complete.")
         return history
 
     def get_policy(self, type):
