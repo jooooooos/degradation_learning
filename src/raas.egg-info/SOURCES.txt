@@ -1,3 +1,5 @@
+LICENSE
+README.md
 setup.py
 src/experiments/__init__.py
 src/experiments/main.py

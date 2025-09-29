@@ -4,6 +4,8 @@ import pickle
 from numba import jit, prange
 import logging
 
+parallel = False # issue with parallel on Apple Silicon
+
 @jit(nopython=True)
 def _get_state_indices_numba(cc, cx, cu, T, t, grids_0, grids_1, grids_2, grids_3, grids_4):
     """Numba-jitted version to find the nearest indices in the grids."""
@@ -14,7 +16,7 @@ def _get_state_indices_numba(cc, cx, cu, T, t, grids_0, grids_1, grids_2, grids_
     idx_t = np.argmin(np.abs(grids_4 - t))
     return idx_cc, idx_cx, idx_cu, idx_T, idx_t
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True, parallel=parallel)
 def _precompute_arrival_dynamics_numba(
     R_arrival, P_survival, Next_cc_idx, Next_t_idx,
     grids_tuple, grid_sizes, Delta_Lambda, failure_cost, replacement_cost
@@ -53,7 +55,7 @@ def _precompute_arrival_dynamics_numba(
                         Next_cc_idx[idx_cc, idx_cx, idx_cu, idx_T, idx_t] = idx_cc_next
                         Next_t_idx[idx_cc, idx_cx, idx_cu, idx_T, idx_t] = idx_t_next
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True, parallel=parallel)
 def _compute_expected_V_arrival_numba(V_arrival, sampled_customer_indices_arr, N_cc, N_t):
     """Computes the expected value of V_arrival for a given (cc, t), averaged over all customers."""
     num_samples = sampled_customer_indices_arr.shape[0]

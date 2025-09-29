@@ -6,7 +6,8 @@ from raas.neural_policy import DPAgent
 from raas.simulation import Simulator, CustomerGenerator
 from raas.hazard_models import ExponentialHazard
 from raas.utility_learner import ProjectedVolumeLearner
-# from raas.degradation_learner import DegradationLearner
+from raas.degradation_learner import DegradationLearner
+from raas.discrete_policy import DiscretizedDPAgent
 from datetime import datetime
 from pytz import timezone
 
@@ -35,9 +36,15 @@ from raas.config import (
     policy_type,
     policy_kwargs,
 )
-
+import argparse
 
 if __name__ == "__main__":
+    # use argparse to get `skip_training` from command line arguments. It can be either True or False.
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--skip_training', type=bool, default=False, help='Whether to skip training the policy.')
+    args = parser.parse_args()
+    skip_training = args.skip_training
+    
     # --------------------------------------------------------------------------- #
     # ---                   Initialize Model Instances                        --- #
     # --------------------------------------------------------------------------- #
@@ -79,6 +86,35 @@ if __name__ == "__main__":
         policy_update_threshold=100,
         time_normalize=True,
     )
+    
+    if skip_training:
+        logging.info("Skipping policy training as per user request.")
+        simulator.projected_volume_learner.centroids.append(UTILITY_TRUE)
+        simulator.projected_volume_learner.is_terminated = True
+        simulator.seen_breakdowns = 2
+
+        degradation_learner = DegradationLearner(d=simulator.d)
+        degradation_learner.theta = np.ones(D) * 0.1
+        degradation_learner.cum_baseline = lambda x: LAMBDA_VAL * x
+        degradation_learner.inverse_cum_baseline = lambda y: y / LAMBDA_VAL
+        simulator.degradation_learner = degradation_learner
+        
+        dp_agent = DiscretizedDPAgent(
+            N=training_hyperparams['N'], # grid sizes [cum_context, context, duration, active_time]
+            max_cumulative_context=training_hyperparams['max_cumulative_context'],
+            # max_active_time=training_hyperparams['max_active_time'],
+            u_hat=UTILITY_TRUE,
+            degradation_learner=degradation_learner,
+            customer_generator=customer_gen,
+            params=mdp_params,
+        )
+        
+        # dp_agent._precompute_dynamics(num_samples=50000)
+        dp_agent.run_value_iteration(100)
+
+        simulator.dp_agent = dp_agent
+        simulator.optimal_policy = dp_agent.get_policy(simulator.policy_type)
+        simulator.breakdowns_since_last_update = 0 # Reset the counter
     
     pacific_tz = timezone('America/Los_Angeles')
     current_time = datetime.now(pacific_tz).strftime("%Y%m%d_%H%M%S")

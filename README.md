@@ -2,7 +2,7 @@
 
 This repository implements the methods described in the paper "Profit Maximization for a Robotics-as-a-Service Model". It provides a simulation framework for optimizing pricing and replacement decisions in a RaaS setting using data-driven models for customer behavior and robot degradation.
 
-For details on the methodology, please refer to the [paper PDF](profit_maximization_for_a_raas_model.pdf) (once added).
+For details on the methodology, please refer to the [paper PDF](profit_maximization_for_a_raas_model.pdf)
 
 ## Installation
 
@@ -36,6 +36,11 @@ Use `notebooks/plotting.ipynb` for visualizations:
 ### Extending the Code
 - Core logic is in `src/raas/` (e.g., `simulation.py` for the main simulator).
 - Experiments/scripts in `src/experiments/` (add custom runners here).
+
+Example command-line usage (if you add a script):
+
+`python -m experiments.run_simulation --skip_training [True/False]`
+Setting `skip_training` lets you skip the projected volume algorithm and starts with perfect knowledge of $\hat u = u$.
 
 ## Repository Structure
 - `src/raas/`: Core package with models, learners, and simulator.
