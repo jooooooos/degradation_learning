@@ -4,7 +4,7 @@ from typing import Callable, List, Dict, Any
 from hazard_models import HazardModel
 from utility_learner import ProjectedVolumeLearner, diam
 from degradation_learner import DegradationLearner
-from policy import DPAgent
+from neural_policy import DPAgent
 # from new_new_policy import DiscretizedDPAgent
 from discrete_policy import DiscretizedDPAgent
 import logging

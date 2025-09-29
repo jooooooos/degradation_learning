@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from policy import DPAgent
+from neural_policy import DPAgent
 # from discrete_policy import DiscretizedDPAgent
 from simulation import Simulator, CustomerGenerator
 from hazard_models import ExponentialHazard
