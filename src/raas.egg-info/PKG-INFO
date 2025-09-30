@@ -1,4 +1,4 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.2
 Name: raas
 Version: 0.1.0
 Summary: Implementation of Profit Maximization for a Robotics-as-a-Service Model
@@ -24,6 +24,16 @@ Requires-Dist: jupyter>=1.0.0; extra == "dev"
 Requires-Dist: notebook>=7.2.2; extra == "dev"
 Requires-Dist: pytest; extra == "dev"
 Requires-Dist: sphinx; extra == "dev"
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
 
 # Profit Maximization for a Robotics-as-a-Service Model
 
@@ -63,6 +73,11 @@ Use `notebooks/plotting.ipynb` for visualizations:
 ### Extending the Code
 - Core logic is in `src/raas/` (e.g., `simulation.py` for the main simulator).
 - Experiments/scripts in `src/experiments/` (add custom runners here).
+
+Example command-line usage (if you add a script):
+
+`python -m experiments.run_simulation --skip_training [True/False]`
+Setting `skip_training` lets you skip the projected volume algorithm and starts with perfect knowledge of $\hat u = u$.
 
 ## Repository Structure
 - `src/raas/`: Core package with models, learners, and simulator.

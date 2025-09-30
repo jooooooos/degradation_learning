@@ -9,8 +9,8 @@ For details on the methodology, please refer to the [paper PDF](profit_maximizat
 ### Using Conda (Recommended)
 1. Create and activate the environment from `requirements.yml`:
 ```
-conda env create -f requirements.yml
-conda activate res
+mamba env create -f requirements.yml
+mamba activate degradable
 ```
 2. Install the package in editable mode:
 `pip install -e .`
@@ -39,7 +39,7 @@ Use `notebooks/plotting.ipynb` for visualizations:
 
 Example command-line usage (if you add a script):
 
-`python -m experiments.run_simulation --skip_training [True/False]`
+`python -m experiments.main --skip_training [True/False]`
 Setting `skip_training` lets you skip the projected volume algorithm and starts with perfect knowledge of $\hat u = u$.
 
 ## Repository Structure
