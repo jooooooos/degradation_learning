@@ -6,7 +6,7 @@ For details on the methodology, please refer to the [paper PDF](profit_maximizat
 
 ## Installation
 
-### Using Conda (Recommended)
+### Using Mamba (Recommended)
 1. Create and activate the environment from `requirements.yml`:
 ```
 mamba env create -f requirements.yml
@@ -16,7 +16,7 @@ mamba activate degradable
 `pip install -e .`
 
 ### Using Pip
-If not using Conda:
+If not using Mamba:
 ```
 pip install -r requirements.yml
 pip install -e .
@@ -47,4 +47,4 @@ Setting `skip_training` lets you skip the projected volume algorithm and starts 
 - `src/experiments/`: Scripts for running experiments.
 - `notebooks/`: Jupyter notebooks for simulation and plotting.
 - `setup.py`: For package installation.
-- `requirements.yml`: Conda environment specs.
+- `requirements.yml`: Virtual environment specs.
