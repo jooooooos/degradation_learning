@@ -6,7 +6,8 @@ from raas.utility_learner import ProjectedVolumeLearner, diam
 from raas.degradation_learner import DegradationLearner
 from raas.neural_policy import DPAgent
 # from new_new_policy import DiscretizedDPAgent
-from raas.discrete_policy import DiscretizedDPAgent
+# from raas.discrete_policy import DiscretizedDPAgent
+from raas.optimized_discrete_policy import DiscretizedDPAgent
 import logging
 from tqdm import tqdm, trange
 import pickle
@@ -278,7 +279,7 @@ class Simulator:
             # --- Rental proceeds: Calculate hazard and outcome ---
             X_total = X_before + customer['context']
             machine_age_at_rental = self.machine.get_age(arrival_time)
-            rate = self.usage_hazard_model.lambda_0() * np.exp(np.dot(X_total, self.theta_true))
+            rate = self.usage_hazard_model.lambda_0(machine_age_at_rental) * np.exp(np.dot(X_total, self.theta_true))
 
             # use true cox model to simulate time to failure
             # TODO: if lambda_0 is not constant, use integration and inversion (not needed now as we use exponential hazard rate)
@@ -435,7 +436,7 @@ class Simulator:
             # --- Rental proceeds: Calculate hazard and outcome ---
             X_total = X_before + customer['context']
             machine_age_at_rental = machine.get_age(arrival_time)
-            rate = self.usage_hazard_model.lambda_0() * np.exp(np.dot(X_total, self.theta_true))
+            rate = self.usage_hazard_model.lambda_0(machine_age_at_rental) * np.exp(np.dot(X_total, self.theta_true))
 
             # use true cox model to simulate time to failure
             # TODO: if lambda_0 is not constant, use integration and inversion (not needed now as we use exponential hazard rate)

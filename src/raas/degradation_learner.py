@@ -134,19 +134,30 @@ class DegradationLearner:
         )
         breslow_df = breslow_df[breslow_df['delta_t'] > 0]
         times = breslow_df['time'].values
-        lambda_step = breslow_df['lambda_0'].values
+        jumps = breslow_df['delta_Lambda'].values 
 
-        # KDE for smoothing
-        kde = gaussian_kde(times, bw_method='silverman', weights=lambda_step)
-        self.kde = kde
+        # KDE for smoothing the baseline hazard shape
+        self.kde = gaussian_kde(times, bw_method='silverman', weights=jumps)
 
         # Set a reasonable max_time for inversion (e.g., 2x max observed time or a large default)
         self.max_time = 2 * max(times) if len(times) > 0 else 1000.0
 
+        # gaussian_kde normalizes weights so the density integrates to 1,
+        # which loses the actual hazard magnitude. Restore it by computing
+        # the ratio of the Breslow cumulative hazard at the last observed
+        # event time to the KDE's integral over the same range.
+        total_cumulative_hazard = breslow_df['Lambda_0'].iloc[-1]
+        max_observed_time = times[-1]  # times is sorted from breslow_df
+        kde_integral, _ = quad(
+            lambda u: self.kde(u)[0], 0, max_observed_time,
+            limit=100, epsabs=1e-8
+        )
+        self.hazard_scale = total_cumulative_hazard / kde_integral if kde_integral > 0 else 1.0
+
     def get_theta(self):
         return self.theta
     
-    def predict_failure_prob(self, sum_before, current_context, duration, calendar_time=None):
+    def predict_failure_prob(self, sum_before, current_context, duration, t_age=None):
         """
         Predicts failure probability for a new rental.
         
@@ -154,7 +165,7 @@ class DegradationLearner:
             sum_before (np.array): Cumulative context before this rental (shape: (d,)).
             current_context (np.array): Current renter's context (shape: (d,)).
             duration (float): Requested rental duration T.
-            calendar_time (float): Optional calendar time (not used here).
+            machine_age (float): Optional calendar time (not used here).
         
         Returns:
             float: Estimated P(failure during [0, T] | X_total).
@@ -169,7 +180,7 @@ class DegradationLearner:
         def lambda_0_integrand(u):
             return self.kde(u)[0]  # KDE evaluate returns array
         
-        Lambda_0_T = self.cum_baseline(cum_usage + duration) - self.cum_baseline(cum_usage)
+        Lambda_0_T = self.cum_baseline(t_age + duration) - self.cum_baseline(t_age)
         
         # quad(lambda_0_integrand, 0, duration, limit=100, epsabs=1e-8)  # Numerical integration
         
@@ -181,13 +192,14 @@ class DegradationLearner:
     def cum_baseline(self, t):
         """
         Computes the cumulative baseline hazard \hat{\Lambda}_0(t) = \int_0^t \hat{\lambda}_0(u) du.
-        
+
         Args:
             t (float): Time point (must be >= 0).
-        
+
         Returns:
-            float: Integrated value.
+            float: Integrated value, scaled to match the Breslow estimator's magnitude.
         """
+        scale = self.hazard_scale if hasattr(self, 'hazard_scale') else 1.0
         if isinstance(t, np.ndarray):
             res = []
             for e in t:
@@ -197,7 +209,7 @@ class DegradationLearner:
                     integral, _ = quad(lambda u: self.kde(u)[0], 0,
                         e, limit=100, epsabs=1e-8
                     )
-                res.append(integral)
+                res.append(integral * scale)
             res = np.array(res)
         else:
             if t <= 0:
@@ -206,6 +218,7 @@ class DegradationLearner:
                 res, _ = quad(lambda u: self.kde(u)[0], 0,
                     t, limit=100, epsabs=1e-8
                 )
+                res = res * scale
         return res
         
     def inverse_cum_baseline(self, y):

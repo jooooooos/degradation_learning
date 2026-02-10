@@ -2,7 +2,7 @@ import numpy as np
 
 def unit_ball_sample(d):
     while True:
-        x = np.random.randn(d)
+        x = np.random.uniform(-1, 1, d)
         if np.linalg.norm(x) <= 1:
             return x
 

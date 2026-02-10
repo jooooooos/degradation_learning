@@ -38,7 +38,7 @@ class ExponentialHazard(HazardModel):
             raise ValueError("Lambda value must be positive.")
         self.lambda_val = lambda_val
 
-    def lambda_0(self) -> float:
+    def lambda_0(self, t: float) -> float:
         """Returns the constant baseline hazard rate."""
         return self.lambda_val
 

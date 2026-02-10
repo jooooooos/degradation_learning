@@ -48,6 +48,7 @@ def _precompute_arrival_dynamics_numba(
                         # Next state upon survival (cc + cx, t + T)
                         cc_next_surv = cc + cx
                         t_next_surv = t + T
+                        # cc (\theta^T X), cx (\theta^T x), cu (u^Tx), T (rental duration), t (active age)
                         idx_cc_next, _, _, _, idx_t_next = _get_state_indices_numba(
                             cc_next_surv, 0.0, 0.0, 0.0, t_next_surv,
                             grids_0, grids_1, grids_2, grids_3, grids_4

@@ -41,7 +41,8 @@ import argparse
 if __name__ == "__main__":
     # use argparse to get `skip_training` from command line arguments. It can be either True or False.
     parser = argparse.ArgumentParser()
-    parser.add_argument('--skip_training', type=bool, default=False, help='Whether to skip training the policy.')
+    parser.add_argument('--skip_training', action='store_true', help="Skip the training phase")
+    # having "--skip_training" in cli will set skip_training to True, otherwise it will be False by default.
     args = parser.parse_args()
     skip_training = args.skip_training
     

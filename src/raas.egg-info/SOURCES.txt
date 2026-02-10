@@ -9,6 +9,7 @@ src/raas/degradation_learner.py
 src/raas/discrete_policy.py
 src/raas/hazard_models.py
 src/raas/neural_policy.py
+src/raas/optimized_discrete_policy.py
 src/raas/simulation.py
 src/raas/utility_learner.py
 src/raas/utils.py

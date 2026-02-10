@@ -389,5 +389,9 @@ class DPAgent:
         with open(filepath + '.pkl', 'rb') as f:
             dp_agent = pickle.load(f)
 
-        dp_agent.q_network.load_state_dict(torch.load(filepath + ".q_network.pth", map_location=dp_agent.device))
+        dp_agent.q_network = QNetwork(dp_agent.state_dim, dp_agent.action_dim).to(dp_agent.device)
+        dp_agent.q_network.load_state_dict(
+            torch.load(filepath + ".q_network.pth", map_location=dp_agent.device)
+        )
         dp_agent.q_network.eval()
+        return dp_agent
