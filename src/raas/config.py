@@ -1,17 +1,22 @@
 import numpy as np
-from raas.utils import unit_ball_sample
 
-def context_sampler() -> np.ndarray:
+def unit_ball_sample(d):
+    while True:
+        x = np.random.uniform(-1, 1, d)
+        if np.linalg.norm(x) <= 1:
+            return x
+
+def context_sampler(d=4) -> np.ndarray:
     """Samples a customer's context vector uniformly from the unit ball."""
-    return np.abs(unit_ball_sample(D))
+    return np.abs(unit_ball_sample(d=d))
 
-def rental_sampler() -> float:
+def rental_sampler(scale=10.0) -> float:
     """Samples a customer's desired rental duration from an exponential distribution."""
-    return np.random.exponential(scale=10.0)
+    return np.random.exponential(scale=scale)
 
-def interarrival_sampler() -> float:
+def interarrival_sampler(scale=5.0) -> float:
     """Samples the time until the next customer arrives."""
-    return np.random.exponential(scale=5.0)
+    return np.random.exponential(scale=scale)
 
 # --- 1. Simulation Configuration ---
 D = 4                                  # Dimension of context vectors
@@ -36,7 +41,6 @@ centroid_params = {
 
 termination_rule = lambda diameter: diameter < 0.0005  # Example custom termination rule
 
-
 mdp_params = {
     'duration_lambda': 10.0,
     'interarrival_lambda': 5.0,
@@ -57,6 +61,7 @@ training_hyperparams = {
 
     # For discrete DP
     'N': [50, 50, 50, 50, 50], # grid sizes [cum_context, context, revenue, duration, active_time]
+    # [100, 50, 100, 100]
     'max_cumulative_context': 8.0,
     # 'max_active_time': 150.0,
     'num_value_iterations': 100,
