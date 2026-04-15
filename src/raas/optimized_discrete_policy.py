@@ -140,7 +140,7 @@ class DiscretizedDPAgent:
     """
 
     def __init__(self, N, max_cumulative_context, u_hat, degradation_learner,
-                 customer_generator, params):
+                 customer_generator, params, num_samples_precompute=None):
         self.degradation_learner = degradation_learner
         self.customer_generator = customer_generator
         self.params = params
@@ -158,8 +158,10 @@ class DiscretizedDPAgent:
         self.policy_arrival = np.zeros(self.grid_shape, dtype=np.int8)
         self.policy_departure = np.zeros(self.V_departure.shape, dtype=np.int8)
 
-        self._precompute_dynamics()
-
+        if num_samples_precompute is None:
+            self._precompute_dynamics()
+        else:
+            self._precompute_dynamics(num_samples=num_samples_precompute)
     # ------------------------------------------------------------------ #
     #  Discretization setup (identical to original)
     # ------------------------------------------------------------------ #
@@ -171,7 +173,7 @@ class DiscretizedDPAgent:
 
         max_revenue_context = 1.0
         duration_lambda = self.params.get('duration_lambda', 0.1)
-        max_rental_duration = -np.log(0.0005) / duration_lambda
+        max_rental_duration = -np.log(0.0005) * duration_lambda
         max_customer_degradation_context = 1.0
         max_active_time = self.params.get('max_active_time',
                                           max_rental_duration * 10)
@@ -249,7 +251,7 @@ class DiscretizedDPAgent:
 
         interarrival_lambda = self.params.get('interarrival_lambda', 1.0)
         self.expected_holding_reward = np.float32(
-            -self.params['holding_cost_rate'] * (1.0 / interarrival_lambda))
+            -self.params['holding_cost_rate'] * interarrival_lambda)
 
         # --- Delta_Lambda: 2D (t, T) ---
         logging.info("  Computing Delta_Lambda (2D)...")

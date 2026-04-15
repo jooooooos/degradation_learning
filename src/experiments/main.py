@@ -1,13 +1,11 @@
 import numpy as np
 import pandas as pd
 
-from raas.neural_policy import DPAgent
-# from discrete_policy import DiscretizedDPAgent
 from raas.simulation import Simulator, CustomerGenerator
 from raas.hazard_models import ExponentialHazard
 from raas.utility_learner import ProjectedVolumeLearner
 from raas.degradation_learner import DegradationLearner
-from raas.discrete_policy import DiscretizedDPAgent
+from raas.mdp_policy import MDPPolicy
 from datetime import datetime
 from pytz import timezone
 
@@ -80,51 +78,46 @@ if __name__ == "__main__":
         projected_volume_learner=projected_volume_learner,  # Use default ProjectedVolumeLearner
         
         mdp_params=mdp_params,
-        discrete_dp=True,
-        policy_type=policy_type,
-        training_hyperparams=training_hyperparams,
-        policy_kwargs=policy_kwargs,
         policy_update_threshold=100,
-        time_normalize=True,
+    )
+
+    mdp_policy = MDPPolicy(
+        training_hyperparams=training_hyperparams,
+        customer_generator=customer_gen,
+        mdp_params=mdp_params,
+        policy_type='decaying_epsilon_greedy',
     )
     
     if skip_training:
         logging.info("Skipping policy training as per user request.")
+        simulator.policy_update_threshold = None
+        
         simulator.projected_volume_learner.centroids.append(UTILITY_TRUE)
         simulator.projected_volume_learner.is_terminated = True
         simulator.seen_breakdowns = 2
 
         degradation_learner = DegradationLearner(d=simulator.d)
-        degradation_learner.theta = np.ones(D) * 0.1
+        degradation_learner.theta = THETA_TRUE
         degradation_learner.cum_baseline = lambda x: LAMBDA_VAL * x
         degradation_learner.inverse_cum_baseline = lambda y: y / LAMBDA_VAL
         simulator.degradation_learner = degradation_learner
-        
-        dp_agent = DiscretizedDPAgent(
-            N=training_hyperparams['N'], # grid sizes [cum_context, context, duration, active_time]
-            max_cumulative_context=training_hyperparams['max_cumulative_context'],
-            # max_active_time=training_hyperparams['max_active_time'],
-            u_hat=UTILITY_TRUE,
-            degradation_learner=degradation_learner,
-            customer_generator=customer_gen,
-            params=mdp_params,
-        )
-        
-        # dp_agent._precompute_dynamics(num_samples=50000)
-        dp_agent.run_value_iteration(100)
 
-        simulator.dp_agent = dp_agent
-        simulator.optimal_policy = dp_agent.get_policy(simulator.policy_type)
-        simulator.breakdowns_since_last_update = 0 # Reset the counter
+        mdp_policy.update(
+            UTILITY_TRUE,
+            degradation_learner,
+        )
+
+    simulation_data = simulator.run(
+        NUM_CUSTOMERS,
+        policy=mdp_policy
+    )
     
     pacific_tz = timezone('America/Los_Angeles')
     current_time = datetime.now(pacific_tz).strftime("%Y%m%d_%H%M%S")
 
     # simulator.projected_volume_learner.is_terminated = True
-    simulation_data = simulator.run(num_customers=NUM_CUSTOMERS)
     degradation_df = pd.DataFrame(simulator.degradation_history)
     simulation_df = pd.DataFrame(simulator.history)
 
     degradation_df.to_csv(f'data/degradation_data_{current_time}.csv', index=False)
     simulation_df.to_csv(f'data/simulation_data_{current_time}.csv', index=False)
-    simulator.save(f'models/simulator_{current_time}')

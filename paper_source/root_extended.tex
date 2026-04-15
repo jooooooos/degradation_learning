@@ -1,0 +1,1052 @@
+\documentclass[letterpaper, 10 pt, conference]{IEEEconf}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\overrideIEEEmargins
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\usepackage{epsfig} % for postscript graphics files
+\usepackage{mathptmx} % assumes new font selection scheme installed
+\usepackage{times} % assumes new font selection scheme installed
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+%\usepackage{amsthm}
+\usepackage{url}
+\bibliographystyle{ieeetr}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{corollary}{Corollary}
+\newtheorem{remark}{Remark}
+\newtheorem{assumption}{Assumption}
+\newtheorem{proposition}{Proposition}
+\newtheorem{definition}{Definition}
+
+% Shorthand macros for the appendix
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\what}[1]{\widehat{#1}}
+
+\title{\LARGE \bf
+Profit Maximization for a Robotics-as-a-Service Model
+}
+
+\author{Joo Seung Lee and Anil Aswani% <-this % stops a space
+\thanks{This material is based upon work supported by the National Science Foundation under Grant No. DGE-2125913 and Grant No. CMMI-1847666.}% <-this % stops a space
+\thanks{Joo Seung Lee and Anil Aswani are with the Department of Industrial Engineering and Operations Research, University of California Berkeley, Berkeley, C 94704, USA
+        {\tt\small \{jooseung\_lee, aaswani\}@berkeley.edu}}%
+}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\pagestyle{empty}
+
+\begin{abstract}
+The growth of Robotics-as-a-Service (RaaS) presents new operational challenges, particularly in optimizing business decisions like pricing and equipment management. While much research focuses on the technical aspects of RaaS, the strategic business problems of joint pricing and replacement have been less explored. This paper addresses the problem of profit maximization for an RaaS operator operating a single robot at a time. We formulate \textbf{this as a stochastic control problem} where jobs arrive sequentially, and for each, the provider must decide on a price, which the customer can accept or reject. Upon job completion, the robot undergoes stochastic degradation, increasing its probability of failure in future tasks. The operator must then decide whether to replace the robot, balancing replacement costs against future revenue potential and holding costs. To solve this sequential decision-making problem under uncertainty, we develop a framework that integrates data-driven estimation techniques inspired by survival analysis and inverse optimization to learn models of customer behavior and robot failure. These models are used within a semi-Markov decision process (SMDP) framework to compute an optimal policy for joint pricing and replacement. Numerical experiments demonstrate the efficacy of our approach in maximizing profit by adaptively managing pricing and robot lifecycle decisions.
+
+\end{abstract}
+\section{Introduction}
+
+Rapid advances in robotics and artificial intelligence (AI) are enabling the growth of \emph{cloud robotics} and \emph{robotics-as-a-service} (RaaS) \cite{chen2010robot,hu2012cloud,kehoe2015survey,buerkle2023towards}. The applications of RaaS to urban mobility \cite{straubinger2020overview,cohen2021urban} and drone delivery \cite{dorling2016vehicle,scott2017drone} are in particular finding rapid development and planned adoption, although concepts in agriculture \cite{dharmasena2019autonomous,milella2024robot}, manufacturing \cite{yan2017cloud}, and other domains \cite{hu2012cloud,toscano2022integrating} are also being considered. Yet despite growing attention to the RaaS paradigm, questions related to business aspects (e.g.,  pricing, maintenance, or replacement decisions) have been less well explored.
+
+\subsection{Predictive Maintenance}
+
+One important business aspect of RaaS is decisions related to maintenance. Because equipment maintenance is a major source of costs and delays in industry, there has been substantial interest in developing data-driven approaches for streamlining maintenance decisions. Predictive maintenance \cite{zhang2019data,carvalho2019systematic,wang2024dynamic} uses sensors that collect streaming data from equipment in order to predict degradation and identify maintenance that may be needed. Approaches based on more classical statistical modeling \cite{zhang2019data}, machine learning \cite{carvalho2019systematic}, and neural-network-based AI \cite{wang2024dynamic} have been proposed. Such approaches have found high-visibility success in the aviation context, where predictive maintenance is used for commercial aircraft and their constituent components \cite{ge_maintenance_insight}.
+
+\subsection{Failure Modeling}
+
+Another important business aspect of RaaS is decisions related to replacement of robots. Whereas questions of maintenance are related to understanding tradeoffs between the timing and amount of maintenance with uncertain knowledge about the level of equipment degradation, decisions regarding replacement are related to managing tradeoffs between holding costs (e.g., costs related to storage), failure costs (e.g., costs related to failures while in operation), and replacement costs (i.e., costs for purchasing new robots). 
+
+Though there is relatively little work on managing replacements, there has been considerably more research on modeling rates of survival or failure. Component-based models for predicting failure rates in electronics have been developed \cite{mil-hdbk-217f,hinton2006prism} and found use in practice. Survival analysis \cite{vittinghoff2012regression,karim2019reliability} uses data to empirically estimate rates of failure and its sensitivity to predictive factors, and it is most commonly used within healthcare \cite{vittinghoff2012regression,collett2015modelling,eloranta2021cancer} with less frequent use in other domains like predicting machine failure \cite{karim2019reliability,papathanasiou2023machine}. The mainstay approach for survival analysis is the proportional hazards model \cite{cox1972regression,kumar1994proportional}, which is able to successfully handle the right-censoring of survival data (i.e.,  life-span data is not available for items or people that have survived at the time of data collection).
+
+\subsection{Inverse Optimization}
+
+An important business aspect of RaaS is decisions related to pricing. Imagining a fleet of robots that perform different jobs arriving sequentially, a relevant business decision is on how to price each job in order to maximize profit while considering equipment degradation and other costs. The most related line of work is the topic of data-driven contract design. In the area of contract design \cite{laffont2002theory}, the \emph{principal} is a leader in making decisions while the \emph{agent} is a follower that makes decisions knowing the decision of the principal. The principal seeks to make an optimal decision knowing the \emph{leader-follower} information structure. 
+
+
+One set of approaches to data-driven contract design make use of inverse optimization \cite{aswani2018inverse,chan2025inverse}, which are techniques that input decision data from agents and estimate utility function models for which the decision data are optimal. These estimated utility function models can then be input into bilevel optimization problems (i.e., optimization problems in which some constraints are optimization problems themselves) in order to design an optimal contract knowing the leader-follower information structure \cite{aswani2019data,mintz2023behavioral,li2025adaptive}.
+
+Another approach to data-driven contract design revolves around multi-armed bandit models \cite{dogan2023estimating,dogan2023repeated,scheid2024incentivized} in order to better understand exploration-exploitation issues. Based upon multi-armed bandit models in which choosing an action provides a stochastic reward, in these models the agent chooses an action in order to maximize their own expected rewards while considering an incentive amount provided by the principal for each action. The central issue is in how the principal can indirectly estimate the agent's expected rewards for each action having observations of only the sequence of actions chosen and not directly measuring the agent's realized rewards. Viewed from a certain perspective, this estimation problem is analogous to inverse optimization. 
+
+\subsection{Contribution and Outline}
+
+To the best of our knowledge, this is the first paper to consider the problem of maximizing profit for robots operating as part of a RaaS business where pricing and replacement decisions are made. Potential customers arrive sequentially, where each customer's job has a vector-valued context and a model for (a) the maximum price willing to pay for the job and (b) the stochastic degradation of a robot completing the job. The operator of the RaaS business must decide what price to charge for servicing the job, and the customer gets to decide whether or not to accept the price. If a customer rejects a price, then the job is lost forever. If a customer accepts a price, then a robot services the job. The robot fails during the job with a stochastic rate depending upon its current degradation level. If the robot completes the job, then the operator gets to decide whether or not to replace the robot considering the tradeoffs between robot replacement costs, holding (e.g., storage) costs, and opportunity costs (i.e., possible future revenue without replacing the robot). 
+
+The paper is outlined as follows: Section \ref{sec:s&m} formally defines the elements of the quantitative model that we consider in this paper, and it presents a stochastic control formulation of the profit maximization problem as a semi-Markov decision process (SMDP). Section \ref{sec:sf} describes our proposed approaches for optimizing the RaaS operator's decisions within the SMDP. The paper concludes with numerical experiments in Section \ref{sec:ne} that demonstrate the potential efficacy of our proposed approach.
+
+\section{Model and Problem Statement}
+\label{sec:s&m}
+
+This section defines the system model and formulates the operator's decision problem as an average-reward SMDP.
+
+\subsection{Customer and Jobs Model}
+
+In our online setting, customers arrive sequentially at times indexed by $k=1, 2, \dots$. The $k$-th customer is characterized by a tuple $(x_k, T_k, \tau_k)$, where $x_k \in \mathbb{R}_+^d$ ($\|x_k\|_2 \leq 1$) is a context vector representing the job, $T_k > 0$ is the desired rental duration, and $\tau_k > 0$ is the interarrival time.
+
+Upon arrival of a customer, the RaaS operator observes $(x_k, T_k)$ and offers a price $p_k$ to the customer.
+
+% In our online setting, customers arrive sequentially at times indexed by $k=1, 2, \dots$. The $k$-th customer is characterized by a tuple $(x_k, T_k, \tau_k)$, where:
+% \begin{itemize}
+%     \item $x_k \in \mathbb{R}_+^d$ is a context vector representing characteristics of the customer's job, with a normalization of $\|x_k\|_2 \leq 1$;
+%     \item $T_k > 0$ is the desired rental duration for the job;
+%     \item $\tau_k > 0$ is the interarrival time since the last customer interaction.
+% \end{itemize}
+% Upon arrival of a customer, the RaaS operator observes $(x_k, T_k)$ and offers a price $p_k$ to the customer.
+
+We assume that a customer's decision to rent a robot for their job is deterministic and governed by an unknown (to the RaaS operator) utility vector $u \in \mathbb{R}_+^d$, with $\|u\|_2 \leq 1$. The customer accepts the offered price if their utility exceeds the price $u^\top x_k \geq p_k$. One of the RaaS operator's challenges is learning $u$ in order to be able to set profit-maximizing prices.
+
+\begin{remark}
+    There are two key aspects to the above assumption. The first is that we are assuming that a customer's utility for their job is a linear function of the context $x_k$. Such a linear context assumption is common in the literature involving online models \cite{agrawal2013thompson,dimakopoulou2019balanced,bastani2021mostly}. 
+\end{remark}
+
+
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\linewidth]{figs/timeflow.pdf}
+    \caption{An example timeline illustrating the operational flow for the Robotics-as-a-Service (RaaS) provider. Upward arrows indicate the arrival of new customers ($x_i$). The robot's status alternates between being under rental ('R' in a green box) and idle ('I' in a purple box). The timeline also depicts key events like a price rejection from an arriving customer (diamond symbol), an unexpected robot failure during a job (star symbol), and a voluntary replacement initiated by the operator (heart symbol). The rewards associated with each period are shown above the timeline, reflecting revenues $\hat u^Tx_i$, holding costs $h\tau_i$, and costs for failure $F$ and replacement $R$.}
+    \label{fig:timeflow}
+\end{figure*}
+
+
+
+\begin{remark}
+The second is that we are assuming a customer rents a robot as long as their utility for completing the job is greater than \emph{or equal to} the price. In the case where the utility equals the price, presumably the customer receives no surplus value for the completion of the job since they must pay an amount equal to their utility. However, we note that such an assumption is common in the contract design literature \cite{laffont2002theory}, and the corresponding inequality is often referred to as a \emph{participation constraint}. We also note that this assumption can be relaxed to an alternative model where a customer rents a robot if $u^\top x_k \geq p_k + \nu$ where $\nu$ is a constant that describes the minimum surplus value a customer must receive for accepting a rental, but for conciseness we assume the above.
+\end{remark}
+
+\subsection{Robot Degradation and Failure Model}
+A robot's condition is modeled by its cumulative operational history. Let $X$ be the sum of context vectors from all prior successful rentals since the last replacement, and let $t_{\text{age}}$ be the sum of rental durations from all prior successful rentals since the last replacement. During a new rental with context $x_k$, the robot is subject to breakdown. We model this using a Cox proportional hazards model \cite{cox1972regression,kumar1994proportional}: The \emph{hazard rate} at time $t \in [0, T_k]$ into the rental, which can be interpreted as the probability the robot will not survive in an infinitely small period of time beyond $t_{\text{age}} + t$, conditioned on the robot having survived up to time $t_{\text{age}} + t$, is
+\begin{equation}
+    \lambda(t | X, x_k) = \lambda_0(t + t_{\text{age}}) \exp(\theta^\top (X + x_k))
+\end{equation}
+where
+\begin{itemize}
+    \item $\lambda_0(\cdot)$ is an unknown (to the RaaS operator), non-negative baseline hazard function;
+    \item $\theta \in \mathbb{R}_+^d$ is an unknown (to the RaaS operator) degradation parameter vector, with normalization $\|\theta\|_\infty \leq 1$, that modulates the impact of cumulative context on failures.
+\end{itemize}
+A breakdown incurs a failure cost $F$ and a replacement cost $R$, after which the robot's cumulative context and cumulative rental duration are reset to states corresponding to a new robot (i.e., $X=0$ and $t_{\text{age}} = 0$). The second challenge for the RaaS operator is to learn $\theta$ and $\lambda_0(\cdot)$ to effectively manage the risk of breakdown.
+
+
+
+\begin{remark}
+    Note that we are assuming that the hazard rate depends upon a linear function of the cumulative contexts $X$, which is the sum of the contexts from prior successful rentals since the last replacement. This is a modest generalization of the linear context assumption that is common in the literature involving online models \cite{agrawal2013thompson,dimakopoulou2019balanced,bastani2021mostly}, but it is arguably reasonable since we would expect failure rates to depend upon the history of completed jobs.
+    \end{remark}
+
+\subsection{Model of RaaS Operator}
+\label{sec:mraas}
+
+
+
+We formulate the RaaS operator's decision problem as an infinite-horizon SMDP defined by the tuple $(\mathcal{S}, \mathcal{A}, \mathcal{P}, \mathcal{R})$.
+
+\textbf{State Space $\mathcal{S}$} The state $s \in \mathcal{S}$ must capture the robot's condition and the current decision epoch. We define $s = (X, t_{\text{age}}, \phi)$, where  $X \in \mathbb{R}_+^d$ is the cumulative context vector since the last replacement, $t_{\text{age}} \in \mathbb{R}_+$ is the cumulative operational time conditioning the baseline hazard, and $\phi \in \{0, 1\}$ is a phase indicator ($\phi=0$ for a pricing decision upon customer arrival, and $\phi=1$ for a replacement decision when idle).
+
+\textbf{Action Space $\mathcal{A}(s)$} The available actions depend on the phase: during arrival ($\phi=0$), the operator chooses $a \in \{\text{Accept}, \text{Reject}\}$; during the idle phase ($\phi=1$), the operator chooses $a \in \{\text{Continue}, \text{Replace}\}$. The 'Replace' action incurs cost $R$ and resets the state.
+
+\textbf{Reward Function $\mathcal{R}$ \& Transition Dynamics $\mathcal{P}$} Let the current state be $s=(X, t_{\text{age}}, \phi)$. The rewards and state transitions are determined by the system's current state $s=(X, t_{\text{age}}, \phi)$ and the operator's chosen action. Because sojourn times vary with the policy, we describe the raw (un-normalized) rewards below; the per-unit-time weighting is handled by continuous-time discounting in the SMDP Bellman equations.
+
+When the system is in the arrival phase (i.e., Case $\phi=0$), a customer with characteristics $(x_k, T_k)$ has just arrived. If the RaaS operator chooses to `Reject' the rental, the system transitions to $(X, t_{\text{age}}, 0)$ with zero reward and elapsed time.
+
+
+\begin{figure*}[!htb]
+    \centering
+    \includegraphics[width=0.9\linewidth]{figs/solution_diagram.pdf}
+    \caption{A diagram of the three-phase learning and control framework. \textbf{Phase 1:} The Projected Volume algorithm is run to obtain a reliable estimate of the customer utility vector, $\hat u$. \textbf{Phase 2:} This estimate is used to learn the degradation parameters $(\hat\theta, \hat\lambda_0)$ and train an initial control policy, $\hat\pi$. \textbf{Phase 3:} The system operates using this policy until a predefined number of new robot failures ($K$) occur. The data from these failures updates the dataset $\mathcal{D}_\theta$, which is then used to re-estimate the parameters and retrain the policy in a repeating cycle.}
+    \label{fig:phases}
+\end{figure*}
+
+If the RaaS operator chooses to `Accept', the customer makes an acceptance decision. If $p_k > u^\top x_k$ (i.e., the price is greater than the customer's utility for the job), then the customer rejects the offered price and the system transitions to $(X, t_{\text{age}}, 0)$ with zero reward and elapsed time. Otherwise, if  $p_k \leq u^\top x_k$ then the customer accepts the offered price, and the rental begins. The outcome is stochastic, and it is specifically governed by the probability of robot failure $p_{\text{fail}} = 1 - \exp(-\exp({\theta}^\top(X+x_k)) \int_0^{T_k} {\lambda}_0(t_{\text{age}}+t) dt)$. With probability $1-p_{\text{fail}}$, the rental is successful, yielding a reward of $p_k$. The system state is updated to reflect the accumulated usage, transitioning to the idle phase at state $(X+x_k, t_{\text{age}}+T_k, 1)$. With probability $p_{\text{fail}}$, the robot breaks down during the rental at a random time $f_k < T_k$. This results in a reward of $p_k - F - R$, accounting for revenue, failure cost, and replacement cost. The robot is replaced, and the state resets to $(0, 0, 1)$ because the RaaS operator is now using a new robot.
+
+When the system is in the idle phase (i.e., Case $\phi=1$), the RaaS operator decides whether or not to replace the robot. If the action is to `Continue', then no replacement occurs. The system incurs a holding cost at rate $h$ over the interarrival time $\tau_{k+1}$, resulting in a reward of $-h\tau_{k+1}$, and transitions to state $(X, t_{\text{age}}, 0)$ when the next customer arrives. If the action is to `Replace', then the RaaS operator pays the replacement cost $R$ in addition to the holding cost, resulting in a reward of $-R-h\tau_{k+1}$. The state is reset to $(0, 0, 0)$ for the next customer arrival.
+
+\subsection{Problem Statement}
+We assume that the RaaS operator's objective is to maximize their average profit per unit of time. Formally, let $\pi$ denote a policy that specifies, for each arriving customer $k$, whether to offer a rental (and at what price $p_k$) and, after each rental or rejection, whether to voluntarily replace the robot. Under policy $\pi$, the system generates a sequence of revenues and costs over an infinite horizon. Fig. \ref{fig:timeflow} provides an example timeline of this process, illustrating the sequence of events and their associated rewards.  Let $\mathcal{T}[K]$ denote the total time elapsed after the first $K$ customers:
+\begin{equation}
+\textstyle\mathcal{T}[K] = \sum_{k=1}^K \tau_k + \sum_{k=1}^K T_k \cdot \mathbb{I}\{a_k = \text{accept}\},
+\end{equation}
+accounting for both idle and rental periods (adjusted for partial rentals due to failures). The profit consists of accepted prices $\{p_k : a_k = \text{accept}\}$, where $a_k$ is the customer's acceptance decision. The costs include failure penalties $F$ for each mid-rental breakdown, replacement costs $R$ for each breakdown or voluntary replacement, and holding costs $h \cdot \tau_k$ for each interarrival idle period $\tau_k$.
+
+
+The fundamental optimization problem that the RaaS operator seeks to solve is thus given by
+\begin{multline}
+\label{eqn:raasobj}
+\textstyle    \max_{\pi} \lim_{K \to \infty} \frac{1}{\mathcal{T}[K]} \big[ \sum_{k=1}^K p_k \cdot \mathbb{I}\{a_k = \text{accept}\} +\\
+   \textstyle - F \cdot n_F[K] - R \cdot n_R[K] - h \sum_{k=1}^K \tau_k \big],
+\end{multline}
+where $n_F[K]$ is the number of failures and $n_R[K]$ is the number of replacements (including those triggered by failures) up to customer $K$, and $\mathbb{I}\{\cdot\}$ is the indicator function. All terms depend on $\pi$ by its influence on acceptances, failures, and replacements. Since the unknown parameters $(u, \theta, \lambda_0)$ must first be learned, the principal has to manage the exploration-exploitation tradeoff between balancing exploration to estimate these parameters with exploitation to maximize profit.
+
+\section{Solution Framework}
+\label{sec:sf}
+
+To tractably compute a policy that optimizes (\ref{eqn:raasobj}), we propose an algorithm that decouples the optimization problem into three sequential phases: (1) estimation of the customer utility vector, (2) estimation of the robot degradation parameters, and (3) computation of an optimal control policy. This iterative learning and control process is illustrated in Fig. \ref{fig:phases}. We manage the exploration-exploitation tradeoff by making use of a standard $\epsilon$-greedy approach \cite{dann2022guarantees}. This section describes the algorithms used for each phase, and implementation details are provided in the next section.
+
+\subsection{Phase 1: Learning the Utility Parameters $u$}
+To learn $u$, we employ the projected volume algorithm \cite{scheid2024incentivized, Lobel2018multidimensional} for multidimensional binary search. We maintain a convex uncertainty set $S_k \subset \{s \in \mathbb{R}^d : \|s\|_2 \leq 1\}$ guaranteed to contain $u$. At arrival $k$ with context $x_k$, the algorithm computes an approximate centroid $\widehat{s}_k$ derived from $S_k$ to offer a query price $p_k = \widehat{s}_k^\top x_k$. The customer's binary accept/reject decision yields a linear constraint, which updates the set via a volume-cutting halfspace: $S_{k+1} = S_k \cap \{s : s^\top x_k \gtrless p_k\}$. This phase terminates when $S_k$ is sufficiently small, outputting the final centroid as our high-confidence estimate $\widehat{u}$.
+
+\subsection{Phase 2: Learning Degradation Parameters $(\theta, \lambda_0(\cdot))$}
+Once a reliable estimate $\widehat{u}$ is obtained, we enter a data collection phase to learn the degradation model. Using a fixed pricing policy (e.g., $p_k = \widehat{u}^\top x_k$), we gather rental data tuples of (cumulative context, rental duration, cumulative operational time, breakdown indicator).
+
+\textbf{Estimating ${\theta}$}: We estimate the parameter $\theta$ by maximizing the partial log-likelihood of the Cox model \cite{vittinghoff2012regression,cox1972regression}:
+\begin{multline}
+    \textstyle\mathcal{L}(\theta) = \sum_{t\in \mathcal{F}}\big[ \sum_{k\in\mathcal{D}(t)} \theta^\top(X_k + x_k) + \\
+    \textstyle-|\mathcal{D}(t)|\log \big( \sum_{j \in R(t)} \exp(\theta^\top(X_j + x_j))\big)\big],
+\end{multline}
+where $\mathcal{F}$ is the set of unique failure times, $\mathcal{D}(t)$ is the set of failures at time $t$, and $R(t)$ is the risk set at $t$ (rentals active at $t$). This conveniently eliminates the dependency on the baseline hazard $\lambda_0(t)$. We impose the constraint $\theta \geq 0$ to ensure that usage is strictly degrading under estimated $\widehat\theta$. 
+
+\textbf{Estimating ${\lambda}_0(\cdot)$}: With the estimate $\widehat{\theta}$, we then estimate the cumulative baseline hazard $\Lambda_0(t) = \int_0^t \lambda_0(s) ds$ using the non-parametric Breslow estimator \cite{breslow1972contribution}. The instantaneous baseline hazard $\widehat{\lambda}_0(t)$ is recovered by smoothing the increments of $\widehat{\Lambda}_0(t)$ and then differentiating.
+
+\subsection{Phase 3: Solving the SMDP Problem}
+
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=0.9\linewidth]{figs/profit_rate_comparison_max_200000.pdf}
+    \caption{Rolling average profit rate per time unit for the oracle, online learning, myopic heuristic, and fully myopic policies, computed over a 2,000-unit window and averaged across 100 simulation runs. Shaded regions indicate $\pm 2$ standard errors.}
+    \label{fig:profit_rate_comp}
+\end{figure*}
+
+
+
+If the parameters $(u,\theta,\lambda_0(\cdot))$ are known, then in principle the optimal policy can be computed using dynamic programming \cite{Bertsekas2017VolI,Bertsekas2012VolII}. The relevant computational issue is whether or not the dimensionality of the state space is small enough to employ an algorithm that directly computes an optimal policy via dynamic programming.
+
+Though the state space (see Section \ref{sec:mraas})  is continuous and high-dimensional (because of the cumulative context vector $X\in\mathbb{R}^d_+$), there exists a lower-dimensional projection that preserves all information relevant for decision-making. The key insight is that the rewards and dynamics depend only on scalar projections of the context vectors. We thus redefine the state for the arrival phase (i.e., Case $\phi=0$) as a 5-dimensional tuple $s' = (c_c, c_x, c_u, T, t)$, where:
+\begin{itemize}
+    \item $c_c = \theta^\top X$ is the cumulative degradation context;
+    \item $c_x = \theta^\top x_k$ is the customer-specific degradation context;
+    \item $c_u = u^\top x_k$ is the customer-specific revenue context;
+    \item $T$ is the job's rental duration;
+    \item $t$ is the robot's cumulative active lifetime.
+\end{itemize}
+For the idle phase (i.e., Case $\phi=1$), the state is fully described by the cumulative degradation $c_c$ and $t$. This projected state space is small enough that dynamic programming can be applied computationally in a direct manner.
+
+
+Our approach to computing a policy for the SMDP, which optimizes the RaaS operator's objective (\ref{eqn:raasobj}), is informed by the above state space projection. Specifically, we use the approaches described in Phases 1 and 2 to estimate the parameters $(u,\theta,\lambda_0(\cdot))$. Value iteration  \cite{Bertsekas2012VolII}, over a finite, discretized grid, is used to compute an optimal policy for the SMDP with model parameters set to be equal to the estimated parameters $(\widehat u, \widehat\theta, \widehat\lambda_0)$. The flow between the various phases of our solution framework are summarized in Fig. \ref{fig:phases}.
+
+
+\section{Numerical Experiments}
+\label{sec:ne}
+\subsection{Experimental Setup}
+Our empirical validation is performed within a event-driven simulation environment designed to validate our online learning and control framework.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\linewidth]{figs/combined_convergence.pdf}
+    \caption{$\ell_2$-norm estimation errors for utility vector $\widehat{u}$ (top) and degradation parameter $\widehat{\theta}$ (bottom) versus number of customers processed, showing means and standard deviations over 100 runs.}
+    \label{fig:convergence}
+\end{figure}
+
+We simulate a horizon of $K=20000$ sequential customer arrivals. Customer context vectors $x \in \mathbb{R}^d_+$ are drawn uniformly from the positive orthant of the of a $d$-dimensional unit ball. Interarrival times $\tau_k$ and rental durations $T_k$ are drawn independently from exponential distributions. The robot's failure mechanism is governed by a Cox proportional hazards model with a constant baseline hazard rate. All simulation parameters are summarized in Table~\ref{tab:params}.
+
+\begin{table}[h]
+\centering
+\caption{Simulation parameters.}
+\label{tab:params}
+\begin{tabular}{cll}
+\hline
+Symbol & Value & Description \\
+\hline
+$d$ & $4$ & Context dimension \\
+$\mathbb{E}[\tau_k]$ & $5$ & Mean interarrival time \\
+$\mathbb{E}[T_k]$ & $10$ & Mean rental duration \\
+$h$ & $0.02$ & Holding cost per unit time \\
+$F$ & $1.2$ & Failure cost \\
+$R$ & $1.5$ & Replacement cost \\
+$u$ & $(0.37, 0.11, 0.34, 0.71)$ & True utility vector \\
+$\theta$ & $(0.5, 0.2, 0.4, 0.3)$ & True degradation parameter \\
+$\lambda$ & $0.001$ & Baseline hazard rate \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Learning Scheme}
+We compute a policy in our simulation using the algorithm outlined in the section \ref{sec:sf}. Experiment-specific details are as follows:
+
+\textbf{Phase 1: Utility Vector Estimation.} Building on the Projected Volume algorithm, we allocate an initial exploration period that typically spans the first $\sim$40 customer arrivals, terminating dynamically when the diameter of the uncertainty set $S_k$ (measured along the normalized context direction $x_k / \|x_k\|_2$) falls below $10^{-4}$. The centroid of $S_k$ is approximated using hit-and-run sampling. During this phase, any accepted rentals contribute initial degradation data to $\mathcal{D}_\theta$ if failures occur.
+
+\begin{figure*}
+    \centering
+    \includegraphics[width=\linewidth]{figs/arrival_policy_side_by_side.pdf}
+    \caption{Decision regions for job acceptance (purple) or rejection (yellow) in the arrival phase, plotted against desired rental duration $T$ and cumulative degradation $\theta^\top X + \theta^\top x$, at selected percentiles of customer revenue $u^\top x$.}
+    \label{fig:arrival_policy}
+\end{figure*}
+
+
+\textbf{Interleaved Phases 2 and 3: Degradation Estimation and Policy Learning.} Immediately after Phase 1 convergence, we estimate $\widehat{\theta}$ by maximizing the partial log-likelihood under the constraint $\theta \geq 0$. For the baseline hazard, we apply the Breslow estimator to compute $\widehat{\Lambda}_0(t)$, followed by smoothing its increments via a Gaussian kernel density estimator to obtain a continuous $\widehat{\lambda}_0(t)$. If insufficient failures have been observed (fewer than 2), we continue data collection using near-optimal pricing $p_k = \widehat{u}^\top x_k - \varepsilon_p$ ($\varepsilon_p=10^{-2}$) to encourage accepts until the threshold is met, then proceed to estimating $\theta$ and $\lambda_0(\cdot)$.
+
+With the system dynamics and reward models specified by the learned parameters $(\widehat u, \widehat\theta, \widehat\lambda_0)$, we compute the optimal policy by solving the SMDP directly. This is accomplished using value iteration on a discretized representation of the five-dimensional state space $(c_c, c_x, c_u, T, t)$. To manage the uncertainty from initial parameter estimates, the agent begins with a decaying $\epsilon$-greedy policy derived from the initial value function with initial $\epsilon = 0.10$ and decay factor $\gamma_d=0.95$. This encourages exploration and mitigates the risk of a greedy policy exploiting inaccuracies in the early estimates  $\widehat\theta$ and $\widehat\lambda_0(\cdot)$, which might otherwise lead to suboptimal, premature `Reject' actions. The policy runs until $K_{\mathrm{fail}}=100$ additional failures accumulate, at which point we re-estimate $\widehat{\theta}$ and $\widehat{\lambda}_0(\cdot)$ from the updated $\mathcal{D}_\theta$ and retrain the policy.  This batch update process repeats throughout the horizon, adapting to new degradation data.
+
+\subsection{Baseline Policies}
+We compare our framework against two myopic baselines using the same estimated parameters $(\widehat{u}, \widehat{\theta}, \widehat{\lambda}_0)$. The Myopic Heuristic accepts a rental if the immediate expected profit is positive ($\widehat{u}^\top x_k - p_{\text{fail}} \cdot (F + R) > 0$), and replaces the robot when the expected profit from an average customer turns negative. The Fully Myopic baseline uses the same acceptance rule but only replaces the robot upon failure, never voluntarily.
+
+
+\subsection{Results}
+\subsubsection{Profitability}
+To benchmark our learning algorithms, we also train an oracle optimal policy which assumes \emph{perfect} knowledge of $u, \theta$, and $\lambda_0(t)$ and run simulations under an identical environment, representing an upper bound on performance. We evaluate the profitability of our online learning framework by comparing its rolling average profit rate (with window size 2,000) to that of the oracle optimal policy with full knowledge of the true parameters $u, \theta$, and $\lambda_0(t)$. Results are aggregated over 100 independent simulation runs, with means and $\pm2$ standard errors reported. As shown in Fig. \ref{fig:profit_rate_comp}, the oracle policy maintains a consistent positive profit rate from the outset, reflecting its perfect alignment with the environment. In contrast, the online policy initially yields negative rates due to exploratory pricing for estimating $u$ and suboptimal decisions from early, inaccurate estimates of $\theta$. However, as learning progresses through batch updates, the online policy's profit rate recovers, becoming positive and converging toward the optimal rate. The myopic heuristic achieves a positive but substantially lower steady-state profit rate, and the fully myopic policy converges to a negative profit rate, as it is unable to voluntarily replace a degraded robot. This demonstrates the framework's ability to adaptively achieve near-optimal performance.% despite initial uncertainty.
+
+\subsubsection{Convergence of $\widehat\theta$ and $\widehat u$}
+To assess parameter estimation, we track the $\ell_2$-norm error between the estimates $\widehat{u}$ and $\widehat{\theta}$ and their ground-truth values, averaged over 100 runs with standard errors. Fig. \ref{fig:convergence} shows rapid convergence for $\widehat{u}$, reaching near-zero error after approximately 40 customers, satisfying the termination criterion for Phase 1. Convergence for $\widehat{\theta}$ is slower and asymptotic, reflecting the need for accumulating failure observations. Though estimation error decreases slowly after an initial rapid decrease, Fig. \ref{fig:profit_rate_comp} indicates that this does not substantially harm the profit rate.
+
+\subsubsection{Policy Structure}
+The computed optimal policy exhibits intuitive structures in its arrival and departure phases, balancing revenue potential against degradation risks, failure costs, holding costs, and replacement expenses.
+
+In the arrival phase (see Fig. \ref{fig:arrival_policy}), decision boundaries for accepting or rejecting jobs are visualized in the plane of desired rental duration $T$ and projected cumulative degradation $\theta^\top (X+x)$, with slices at the 10th, 50th, and 90th percentiles of projected customer revenue $u^\top x$. Higher rental price percentiles expand the acceptance region, as increased expected payoffs offset degradation-related risks for a given failure probability (determined by $T$ and $\theta^\top(X+x)$).
+
+In the departure phase, a threshold at $\theta^\top X \approx 4$ governs replacement decisions. Below this, retaining the robot is optimal to capitalize on potential future high-revenue jobs; above it, replacement is preferred to preempt likely failures (incurring additional costs beyond replacement) or excessive holding costs while awaiting suitable customers.
+
+\section{Conclusion}
+Our framework enables RaaS operators to learn customer utilities and robot degradation models online, yielding policies that converge to near-optimal profitability through adaptive pricing and replacement decisions. Numerical results validate its efficacy in balancing revenue against operational risks. Future extensions could consider more realistic settings such as stochastic customer acceptance behaviors (see for example \cite{dogan2023estimating}), which necessitates more complex models.
+
+%% ======================================================================
+%% APPENDIX: Full Theoretical Analysis
+%% ======================================================================
+\setcounter{remark}{0}
+
+\section*{Appendix: Theoretical Analysis of Online Policy Convergence}
+
+This appendix provides the complete theoretical analysis establishing convergence guarantees for the online learning and control framework presented in Section~\ref{sec:sf}. We prove that a variant of the proposed algorithm achieves average-reward regret converging at rate $\widetilde{\mathcal{O}}(K^{-\gamma'/(4\gamma'+1)})$, where $\gamma' \in (0,1)$ is a problem-dependent hazard ratio defined below.
+
+\begin{remark}[Theoretical vs.\ Practical Algorithm]
+The convergence proof analyzes an idealized variant of the algorithm in Section~\ref{sec:sf} that incorporates several structural modifications standard in the learning-theory literature: (i)~epochs are defined by deterministic customer counts $N_j = 2^j$ (rather than a fixed failure count), to ensure predictable stopping times for martingale arguments; (ii)~a forced robot replacement occurs at each epoch boundary to prevent left-truncation bias; (iii)~exploratory accept actions use a concession price $p_k = 0$ to guarantee customer acceptance and prevent data starvation; (iv)~the exploration rate is set to a fixed horizon-dependent $\varepsilon = K^{-p}$; (v)~all Phase~1 degradation data is discarded to preserve conditional independence via the Strong Markov Property; and (vi)~a pessimistic infinite-hazard estimate is imposed beyond the data-supported time range. The practical implementation in Section~\ref{sec:ne} uses the heuristic simplifications described therein, which perform well empirically.
+\end{remark}
+
+%% ----------------------------------------------------------------------
+\subsection*{A.~Assumptions}
+%% ----------------------------------------------------------------------
+
+We state the formal regularity conditions required for the analysis. We write $\omega = (u, \theta, \lambda_0)$ for the full parameter tuple.
+
+\begin{assumption}[Context Distribution]
+\label{ass:context}
+Customer contexts $x_k$ are drawn i.i.d.\ from a distribution $\mathcal{D}_x$ supported on $\{x \in \mathbb{R}^d_+ : \|x\|_2 \leq 1\}$, with density $f_x$ satisfying $f_x(x) \geq \eta > 0$ on $\{x \in \mathbb{R}^d_+ : \|x\|_2 \leq r_0\}$ for some $r_0 > 0$. The rental durations $T_k \sim \mathrm{Exp}(\mu_T)$ and interarrival times $\tau_k \sim \mathrm{Exp}(\mu_\tau)$ are independent of each other and of $x_k$.
+\end{assumption}
+
+\begin{assumption}[Cost Structure]
+\label{ass:cost}
+The failure cost strictly exceeds the maximum possible single-job revenue: $F > 1 \geq \max_{x: \|x\|_2 \leq 1} u^\top x$. In particular, $F + R > 1$ also holds.
+\end{assumption}
+
+\begin{assumption}[Degradation Model Regularity]
+\label{ass:cox}
+The following conditions hold for the degradation model:
+\begin{enumerate}
+    \item[(i)] The true parameter $\theta \in \Theta = \{\theta \in \mathbb{R}^d_+ : \|\theta\|_\infty \leq 1\}$.
+    \item[(ii)] The baseline hazard $\lambda_0(\cdot)$ is continuous and satisfies $0 < \underline{\lambda} \leq \lambda_0(t) \leq \overline{\lambda} < \infty$ for all $t \geq 0$.
+    \item[(iii)] The Fisher information matrix $I(\theta) = -\E[\nabla^2 \ell(\theta)]$ (from the Cox partial log-likelihood) under the data-generating process induced by the $\varepsilon$-greedy exploration policy is positive-definite: $I(\theta) \succ 0$.
+    \item[(iv)] Under any policy that accepts jobs with positive probability, the expected failure rate over the total operating time $\mathcal{T}$ is bounded below: $\E[n_F / \mathcal{T}] \geq \nu > 0$ for some constant $\nu$.
+\end{enumerate}
+\end{assumption}
+
+\begin{assumption}[Non-Degeneracy of Projections]
+\label{ass:projection}
+Both $u$ and $\theta$ have strictly positive entries: $\min_i u_i > 0$ and $\min_i \theta_i > 0$. Furthermore, $u$ is not parallel to $\theta$ (i.e., $u / \|u\| \neq \theta / \|\theta\|$).
+\end{assumption}
+
+\begin{assumption}[Communicating Structure]
+\label{ass:communicating}
+Under any stationary policy that accepts jobs with positive probability and replaces the robot at sufficiently high degradation, the induced Markov chain on the projected state space is communicating: the reset state $(c_c, t) = (0, 0)$ is reachable from every state via replacement, and every state in the truncated state space (defined in Subsection~E) is reachable from $(0, 0)$ via a sequence of accepted jobs. In particular, the optimal average reward $\rho^*$ is well-defined and independent of the initial state.
+\end{assumption}
+
+\begin{remark}
+Assumption~\ref{ass:context} is satisfied by the uniform distribution on the positive orthant of the unit ball used in Section~\ref{sec:ne}. Assumption~\ref{ass:cost} is mild and holds in our experiments ($F = 1.2 > 1$). Assumption~\ref{ass:cox}(iii) requires that the covariates are not collinear in the risk sets, which holds generically. Assumption~\ref{ass:cox}(iv) follows from the fact that under $\varepsilon$-greedy exploration with rate $\varepsilon_k > 0$, a positive fraction of jobs is accepted in each epoch, and each accepted job has a positive failure probability. In our analysis, we use a decaying exploration rate $\varepsilon_k = K^{-\beta}$ for a tuning parameter $\beta \in (0,1)$, which ensures $n_F = \Omega(K^{1-\beta}) \to \infty$ while the per-step exploration penalty $O(\varepsilon_k) \to 0$. Assumption~\ref{ass:projection} is generic and ensures that the customer utility and degradation projections provide different information about each job. Assumption~\ref{ass:communicating} is mild: replacement resets the state to $(0,0)$, and from there, Assumptions~\ref{ass:context} and~\ref{ass:projection} guarantee reachability.
+\end{remark}
+
+%% ----------------------------------------------------------------------
+\subsection*{B.~Theoretical Preliminaries}
+%% ----------------------------------------------------------------------
+
+Using the projected state space $(c_c, c_x, c_u, T, t)$ defined in Section~\ref{sec:sf}, we introduce the additional theoretical objects needed for the analysis.
+
+\paragraph{Failure Probability.}
+The probability that the robot fails during a rental with projected state $(c_c, c_x, T, t)$ is
+\begin{equation}
+    \label{eq:pfail}
+    q(c_c + c_x, T, t) = 1 - \exp\!\Big(-\exp(c_c + c_x) \cdot \Delta\Lambda(t, T)\Big),
+\end{equation}
+where $\Delta\Lambda(t, T) = \Lambda_0(t + T) - \Lambda_0(t)$.
+
+\paragraph{Average-Reward Poisson Equation.}
+Under the average-reward formulation, the relative value (bias) function $h^*(s)$ for state $s$ satisfies the Poisson equation:
+\begin{equation}
+    \label{eq:poisson}
+    h^*(s) + \rho^* \cdot \E[\tau(s)] = \max_a\Big\{r(s,a) + \E[h^*(s')|s,a]\Big\},
+\end{equation}
+where $\rho^*$ is the optimal average reward per unit time, $\tau(s)$ is the expected time spent in state $s$ until the next transition, and $s'$ is the next state under action $a$. The bias function $h^*(s)$ quantifies the long-run advantage of starting in state $s$ relative to the average-reward baseline $\rho^*$.
+
+\paragraph{Span Bound on the Bias Function.}
+The robot resets to $(0,0)$ upon failure or voluntary replacement. Since a fresh robot is stochastically dominant (lower failure risk at any degradation level), we have $h^*(s) \leq h^*(0,0)$ for all states $s$. Since the operator can always pay $R$ to replace the robot and return to $(0,0)$, we have $h^*(s) \geq h^*(0,0) - R$ for all $s$. Therefore, the span of the bias function is bounded:
+\begin{equation}
+    \label{eq:span_bound}
+    \mathrm{sp}(h^*) := \max_s h^*(s) - \min_s h^*(s) \leq R = O(1).
+\end{equation}
+This bound is independent of any algorithmic truncation and depends only on the replacement cost.
+
+\paragraph{Model Primitives.}
+The per-job survival probability, averaged over rental duration, is bounded above uniformly:
+\begin{equation}
+    \label{eq:q0_def}
+    q_0 := \frac{\mu_T}{\mu_T + \underline{\lambda}} < 1,
+\end{equation}
+where $\underline{\lambda} = \inf_t \lambda_0(t) > 0$ is the minimum baseline hazard (Assumption~\ref{ass:cox}(ii)).
+
+\paragraph{Reward Bound.}
+The expected per-transition reward, conditional on the state-action pair, is uniformly bounded: $|\bar{r}(s,a)| := |\E[r|s,a]| \leq R_{\max}$, where $R_{\max} = \max(1, F+R, h/\mu_\tau + R)$. The bias function satisfies $\|h^*\|_\infty \leq R_{\max} + R$ from the span bound.
+
+%% ----------------------------------------------------------------------
+\subsection*{C.~Phase 1: Convergence of Utility Estimation}
+\label{sec:app_phase1}
+%% ----------------------------------------------------------------------
+
+\paragraph{Key cited results from~\cite{Lobel2018multidimensional}.} The proof of Phase~1 convergence relies on two structural lemmas from Lobel et al. In the statements below, the symbol $v$ denotes a direction vector (not the utility vector $u$).
+
+\begin{quote}
+\textbf{Lemma~6.1 of~\cite{Lobel2018multidimensional} (Cylindrification).}
+\textit{Let $K \subset \mathbb{R}^d$ be a convex body such that $w(K, v) \geq \delta$ for every unit vector $v$. Then for every $(d-1)$-dimensional subspace $L$:}
+\begin{equation}
+    \mathrm{vol}(\Pi_L K) \leq \frac{d(d+1)}{\delta} \cdot \mathrm{vol}(K).
+\end{equation}
+\end{quote}
+
+\begin{quote}
+\textbf{Lemma~7.1 of~\cite{Lobel2018multidimensional} (Projected Gr\"unbaum).}
+\textit{Let $K \subset \mathbb{R}^d$ be a convex set contained in the ball of radius~$1$, and let $S$ be a set of orthonormal vectors along which $w(K, s) \leq \delta \leq \varepsilon^2/(16d(d+1)^2)$ for all $s \in S$. Let $L$ be the subspace orthogonal to $S$, and let $\Pi_L$ be the projection operator onto that subspace. If $v$ is a direction along which $w(\mathrm{Cyl}(K, S), v) \geq \varepsilon$, $z$ is the centroid of the cylindrified body $\mathrm{Cyl}(K, S)$, and $K_+ = \{x \in K : v^\top(x - z) \geq 0\}$, then:}
+\begin{equation}
+    \mathrm{vol}(\Pi_L K_+) \leq \big(1 - 1/e^2\big) \cdot \mathrm{vol}(\Pi_L K).
+\end{equation}
+\end{quote}
+
+\noindent In our application, $K = K_k$ is the knowledge set, $S = S_k$ is the set of small directions, $L = L_k$ is the large subspace, $v = x_k / \|x_k\|$ is the context direction, and $\varepsilon = \varepsilon_{\mathrm{algo}}$ is the internal precision parameter.
+
+\begin{lemma}[Phase 1 Convergence]
+    \label{lem:phase1}
+    Under Assumption~\ref{ass:context}, the Projected Volume algorithm of Lobel et al.~\cite{Lobel2018multidimensional}, applied to the i.i.d.\ customer contexts $\{x_k\} \sim \mathcal{D}_x$, produces an estimate $\what{u}_{T_1}$ satisfying
+    \begin{equation}
+        \|\what{u}_{T_1} - u\|_2 \leq \varepsilon_u
+    \end{equation}
+    after $T_1 = O(d \log(d / \varepsilon_u))$ customer arrivals, with high probability.
+\end{lemma}
+
+\begin{proof}
+    The proof bridges the adversarial regret bounds of Lobel et al.~\cite{Lobel2018multidimensional} with our stochastic pure-exploration setting via a deterministic stopping time.
+
+    \textbf{Part 1: Geometric volume reduction and diameter bounds.}
+    Instead of waiting indefinitely for $L_k = \{0\}$---which induces a geometric ``dead zone'' when the width falls below $\delta$---Phase 1 explicitly monitors the diameter of the knowledge set $K_k$. Phase 1 halts when $\mathrm{diam}(K_k) \le \varepsilon_u$. Because $K_k \subset \mathbb{R}^d$, this ensures any estimate $\what{u} \in K_k$ satisfies $\|\what{u} - u\|_2 \le \varepsilon_u$.
+
+    At each step, the operator cylindrifies $K_k$ along the small directions $S_k$, computes the centroid $z_k$ of $\mathrm{Cyl}(K_k, S_k)$, and offers the price $p_k = z_k^\top x_k$. Because the true utility $u$ lies in $K_k$, the customer's accept/reject response unconditionally provides a valid halfspace cut passing exactly through the centroid $z_k$. By Gr\"unbaum's Theorem (Lemma~7.1 of \cite{Lobel2018multidimensional}), intersecting $K_k$ with this centroid-cut halfspace geometrically guarantees a reduction in the projected volume $\Phi_k$ by a constant factor of at least $(1 - 1/e^2)$, provided the width of the cylindrified set along $x_k$ is sufficiently large: $w(\mathrm{Cyl}(K_k, S_k), x_k / \|x_k\|_2) \geq \varepsilon_{\mathrm{algo}}$.
+
+    Following Theorem~4.3 of \cite{Lobel2018multidimensional}, we set the internal precision $\delta = \frac{\varepsilon_{\mathrm{algo}}^2}{16d(d+1)^2}$. A volume-reducing cut drops $\Phi_k$ by $(1 - 1/e^2)$. A dimension drop in $L_k$ increases $\Phi_k$ by at most $\mathcal{O}(d^2/\delta)$, but occurs at most $d$ times. Therefore, the maximum capacity of volume-reducing cuts before the algorithm is physically forced to shrink the width along all basis directions in $S_k$ to at most $\delta$ is strictly bounded by $M = \mathcal{O}(d \log(d/\varepsilon_{\mathrm{algo}}))$. By setting $\varepsilon_{\mathrm{algo}} = \varepsilon_u / (2\sqrt{d})$, once the basis bounds are reached, the width in any arbitrary unit direction $v$ is bounded by the $\ell_1$-sum of its basis components, yielding $w(K_k, v) \leq \sqrt{d}\delta \le \varepsilon_u/2 < \varepsilon_u$. This strictly bounds the diameter: $\mathrm{diam}(K_k) \leq \varepsilon_u$.
+
+    \textbf{Part 2: Stochastic contexts drive volume-reducing cuts.}
+    To prevent infinite loops, we execute Phase 1 for a strict deterministic budget $T_1$. Prior to reaching the $M$ necessary cuts, the condition $\mathrm{diam}(K_k) > \varepsilon_u$ ensures there exists at least one unit direction $v$ along which the geometric width strictly exceeds $\varepsilon_u$. Because $\varepsilon_{\mathrm{algo}} = \varepsilon_u / (2\sqrt{d})$, the width along $v$ is substantially larger than $\varepsilon_{\mathrm{algo}}$. Since the context distribution $f_x$ has density bounded away from zero spanning $\mathbb{R}^d_+$ (Assumption~\ref{ass:context}), there is a strictly positive probability $p_0 > 0$ of drawing a context $x_k$ that aligns sufficiently with this wide direction. Specifically, this alignment guarantees the width of the cylindrified set along the normalized context direction satisfies $w(\mathrm{Cyl}(K_k, S_k), x_k / \|x_k\|_2) \geq \varepsilon_{\mathrm{algo}}$. Thus, in every round prior to termination, the probability of securing a guaranteed volume-reducing cut is at least $p_0$.
+
+    \emph{Explicit confidence-level calibration.}
+    The structural limit $M = \mathcal{O}(d\log(d/\varepsilon_u))$ is a deterministic property of the algorithm's geometry. To achieve a prescribed failure probability $\delta_{\mathrm{Phase1}} > 0$, we extend the statistical waiting time. Let $T_1 = \frac{2M}{p_0} + \frac{8}{p_0} \ln(1/\delta_{\mathrm{Phase1}})$. By a standard Chernoff bound, the probability of observing fewer than $M$ volume-reducing cuts in $T_1$ rounds is strictly bounded by $\delta_{\mathrm{Phase1}}$. Setting $\varepsilon_u = K^{-\beta}$ (as in Theorem~\ref{thm:main}), the total duration scales as $T_1 = \mathcal{O}\big(d\beta \log K + \log(1/\delta_{\mathrm{Phase1}})\big) = \mathcal{O}(\log K)$. This explicitly verifies that Phase 1 consumes only a vanishing fraction of the overall horizon $K$. By setting $\delta_{\mathrm{Phase1}} = \delta_{\mathrm{conf}}/5$, this Phase 1 tail is safely absorbed into the global high-probability event $\mathcal{E}$ without degrading the union bound.
+\end{proof}
+
+
+%% ----------------------------------------------------------------------
+\subsection*{D.~Phase 2: Convergence of Degradation Estimation}
+\label{sec:app_phase2}
+%% ----------------------------------------------------------------------
+
+After Phase~1 concludes with estimate $\what{u}$, the operator uses $\what{u}$ for pricing and collects failure data. The Cox partial likelihood estimator $\what{\theta}$ and the Breslow estimator $\what{\Lambda}_0$ are computed from the preceding epoch's data using finite-sample, non-asymptotic concentration bounds.
+
+\begin{lemma}[Data-Dependent Truncation via PFU]
+    \label{lem:breslow_tail}
+    Fix an epoch $j$ with $N_{j-1}$ deterministic customer arrivals from the preceding epoch and exploration rate $\varepsilon_{j-1}$. Define the \emph{data-dependent active-time cutoff} $t_{\max,j}$ as the time at which the empirical risk set size drops to $N_{\min} := (\varepsilon_{j-1}^2 N_{j-1})^\alpha$. For $t > t_{\max,j}$, we apply \emph{Pessimism in the Face of Uncertainty (PFU)} by artificially setting the estimated baseline hazard to $\what{\lambda}_{0,j}^{\mathrm{pes}}(t) = \infty$.
+\end{lemma}
+\begin{proof}
+    Under this infinite pessimistic hazard, any job entering the tail fails with probability $1$, yielding a strict expected return of $p_k - F - R \le c_u - F - R < -R$ (since $F > 1 \ge c_u$ by Assumption~\ref{ass:cost}). If the operator instead chooses to \texttt{Reject} the job, the system transitions to the idle phase where the \texttt{Replace} action guarantees a continuation value of $-R + h^*(0,0)$. Because the expected return from an accepted job that is guaranteed to fail is $c_u - F - R + h^*(0,0)$ (since the robot is immediately replaced), which is strictly less than the reject continuation value $-R + h^*(0,0)$ (since $c_u \le 1 < F$ by Assumption~\ref{ass:cost}), the SMDP solver will intrinsically prefer to reject jobs entering the tail and subsequently replace the robot. This mathematically restricts the reachable state space under $\what{\pi}_j$ to $[0, t_{\max,j}]$.
+
+    Crucially, we must bound the suboptimality incurred by this truncation relative to the true optimal policy $\pi^*$. In Epoch $j-1$, as established in Lemma~\ref{lem:theta_concentration}, there are $n_F = \Omega(\varepsilon_{j-1} N_{j-1})$ failures. Because each failure (except possibly the final one before the epoch terminates) triggers a physical replacement, these failures produce at least $n_F - 1$ subsequent robot lifecycles starting from the reset state $(0,0)$. Combined with the forced replacement at the exact start of the epoch, there are at least $n_F$ distinct robot lifecycles that begin from $(0,0)$ during the epoch. Let $\mathcal{L}_F$ be a set of exactly $n_F$ such lifecycles.
+
+    For each lifecycle $i \in \mathcal{L}_F$, consider its very first customer arrival. The $\varepsilon_{j-1}$-greedy policy selects a uniformly random exploratory action with probability $\varepsilon_{j-1}$. Thus, with probability $\varepsilon_{j-1}/|\mathcal{A}|$, the policy explores and selects \texttt{Accept}. Crucially, to prevent unilateral customer vetoes due to potential Phase 1 overestimation, the algorithm actively mandates an exploratory concession price of $p_k = 0$ during these random \texttt{Accept} actions. Because customer utility is strictly non-negative ($u^\top x_k \ge 0$), this mathematically guarantees $100\%$ customer acceptance and averts data starvation. (While offering $p_k = 0$ forfeits up to $c_u \le 1$ in immediate revenue per exploratory job, this bounded loss is fully absorbed by the $\mathcal{O}(K\varepsilon)$ exploration regret term, resulting in zero degradation to the asymptotic rate.) Furthermore, because this decision is forced and unilaterally accepted, it is strictly independent of the customer's unobserved rental duration $T$. Therefore, for these specific jobs, $T \sim \mathrm{Exp}(\mu_T)$ exactly.
+
+    The probability that this first job is randomly accepted and has duration $T \ge t$ is $\frac{\varepsilon_{j-1}}{|\mathcal{A}|} \exp(-\mu_T t)$. Because the physical state cap bounds the hazard by $\lambda_{\max} = \overline{\lambda}\exp(C_{\max} + \sqrt{d})$, the probability the robot survives this job up to operational time $t$ is at least $\exp(-\lambda_{\max} t)$. Let $Y_i(t)$ be the indicator that lifecycle $i$ reaches operational age $t$ during its first job. We have:
+    \begin{equation}
+        \mathbb{E}[Y_i(t)] \ge \frac{\varepsilon_{j-1}}{|\mathcal{A}|} \exp\big(-(\mu_T + \lambda_{\max})t\big).
+    \end{equation}
+    Because the policy is strictly frozen, the lifecycles are conditionally independent. By a standard Chernoff bound, the sum tightly concentrates. Let $N_{\mathrm{eff}} = \varepsilon_{j-1}^2 N_{j-1}$ denote the effective exploratory sample size. We define the active-time cutoff threshold as $N_{\min} = (N_{\mathrm{eff}})^\alpha$ for a tuning parameter $\alpha \in (0,1)$. Setting $t^* = \frac{1-\alpha}{\mu_T + \lambda_{\max}} \ln\left( c N_{\mathrm{eff}} \right)$ for a suitable constant $c$, the expected number of active lifecycles equals $2 N_{\min}$. The Chernoff bound ensures the empirical risk set size exceeds $N_{\min}$ at $t^*$ with high probability.
+
+    Because the empirical risk set is non-increasing, the data-dependent cutoff $t_{\max,j}$ satisfies $t_{\max,j} \ge t^* = \Omega(\ln(\varepsilon_{j-1}^2 N_{j-1}))$. Finally, because the true optimal policy operates under the baseline hazard, its survival probability satisfies $S^{\pi^*}(t) \le \exp(-\underline{\lambda} t)$. Thus, the truncation penalty is:
+    \begin{align}
+        S^{\pi^*}(t_{\max,j}) &\le \exp(-\underline{\lambda} t^*) \le \mathcal{O}\left( (N_{\mathrm{eff}})^{-\gamma'(1-\alpha)} \right), \\
+        &\text{where } \gamma' := \frac{\underline{\lambda}}{\mu_T + \lambda_{\max}} \in (0,1).
+    \end{align}
+    By cleanly isolating the purely exploratory actions, this formulation completely circumvents the $T$-dependent survival bias of the greedy policy, securing the parameter-dependent polynomial decay.
+\end{proof}
+
+\paragraph{Deterministic Physical Covariate Truncation.}
+To establish uniform concentration of the empirical processes over the entire parameter space $\Theta = \{ \theta \in \mathbb{R}^d_+ : \|\theta\|_\infty \leq 1 \}$, we must bound the physical state $Z_i = X + x_i$ deterministically. The algorithm is initialized with a conservative physical capacity hyperparameter $C_{\max} > 0$. During operation, if the cumulative context satisfies $\|X\|_1 > C_{\max}$, the algorithm executes a hard \texttt{Replace} action.
+
+Because $\min_i \theta_i > 0$ (Assumption~\ref{ass:projection}), the physical state is related to the true degradation projection by $c_c = \theta^\top X \ge \min_i \theta_i \|X\|_1$. By Lemma~\ref{lem:truncation}, the true optimal policy $\pi^*$ naturally replaces the robot before $c_c$ exceeds an economic threshold $\bar{c}$. Therefore, provided the operator sets $C_{\max} \ge \bar{c} / \min_i \theta_i$, this hard physical reset is strictly non-binding with respect to $\pi^*$, introducing exactly zero truncation error. Crucially, this guarantees that all at-risk covariates are deterministically bounded by an absolute constant throughout the entire horizon:
+\begin{equation}
+    \label{eq:physical_cap}
+    \|Z_i\|_1 \le \|X\|_1 + \|x_i\|_1 \le C_{\max} + \sqrt{d} = \mathcal{O}(1).
+\end{equation}
+Because $\min_i \theta_i$ is unknown, $C_{\max}$ is treated as a conservatively chosen algorithmic hyperparameter. Since $C_{\max}$ is a fixed constant independent of $K$, it is absorbed into the $\mathcal{O}(1)$ bounds without affecting the asymptotic rate.
+
+\paragraph{Finite-Sample Concentration Machinery (Huang et al., 2013).}
+Because the risk-set denominators in the Cox partial likelihood couple all historical survival times, the empirical Hessian is not a sum of independent matrices. Therefore, standard Matrix Bernstein bounds are invalid. Instead, we rely on the continuous-time empirical process framework developed by Huang et al.~\cite{huang2013}, which provides finite-sample exponential tail bounds via stopped martingales. We state the two critical results here (adapted to our notation, where the true parameter is $\theta$ and sample size is $n_F$):
+
+\begin{quote}
+\textbf{Lemma 3.2 of \cite{huang2013} (Hessian Sandwich).} \textit{Let $\ell(\theta)$ be the Cox partial log-likelihood and $\ddot{\ell}(\theta)$ be its empirical Hessian. For any direction $\mathbf{b}$, $e^{-2\eta_{\mathbf{b}}}\,\ddot{\ell}(\theta) \leq \ddot{\ell}(\theta+\mathbf{b}) \leq e^{2\eta_{\mathbf{b}}}\,\ddot{\ell}(\theta)$, where $\eta_{\mathbf{b}} = \max_{s \geq 0}\max_{i,j}|\mathbf{b}'Z_i(s) - \mathbf{b}'Z_j(s)|$ is the maximum covariate separation.}
+\end{quote}
+
+\begin{quote}
+\textbf{Lemma 3.3(ii) of \cite{huang2013} (Finite-Sample Score Concentration).} \textit{Suppose the covariates are uniformly bounded such that $\|Z_i(t) - \bar{Z}_{n}(t, \theta)\|_\infty \leq M$. Let $\dot{\ell}(\theta)$ be the score evaluated at the true parameter. If $\max_i N_i(1) \leq 1$ (at most one failure per subject), then for all $x > 0$, $P\!\big(\|\dot{\ell}(\theta)\|_\infty > M\,x\big) \leq 2d\,e^{-n_F x^2/2}$.}
+\end{quote}
+
+\begin{lemma}[Finite-Sample Parameter Concentration]
+    \label{lem:theta_concentration}
+    Let Epoch $j-1$ consist of $N_{j-1}$ deterministic customer arrivals, and let $\varepsilon_{j-1}$ be the uniform exploration rate. The maximum partial likelihood estimator $\what{\theta}_j$ satisfies:
+    \begin{equation}
+        \|\what{\theta}_j - \theta\|_2 \le \widetilde{\mathcal{O}}\Bigg(\frac{1}{\sqrt{\varepsilon_{j-1} N_{j-1}}}\Bigg)
+    \end{equation}
+    with high probability.
+\end{lemma}
+\begin{proof}
+    In Epoch $j-1$, the strictly frozen $\varepsilon_{j-1}$-greedy policy forces independent exploratory actions. Let $n_{\mathrm{acc}}$ be the number of randomly accepted jobs. By offering a conceded price $p_k = 0$ during these exploratory \texttt{Accept} actions, customer acceptance is universally guaranteed, completely bypassing any Phase 1 pricing overestimates. Since customer arrivals are independent, $n_{\mathrm{acc}}$ stochastically dominates a binomial random variable $\mathrm{Bin}(N_{j-1}, \varepsilon_{j-1}/|\mathcal{A}|)$. By a standard Chernoff bound, $n_{\mathrm{acc}} = \Omega(\varepsilon_{j-1} N_{j-1})$ with high probability. Conditional on $n_{\mathrm{acc}}$, each accepted job fails with probability at least $1 - q_0 > 0$ (Lemma~\ref{lem:truncation}). Because the policy is frozen, these lifecycles are conditionally independent. A second application of the Chernoff bound to these $n_{\mathrm{acc}}$ lifecycles guarantees the realized failure count satisfies $n_F \ge \frac{1-q_0}{2} n_{\mathrm{acc}} = \Omega(\varepsilon_{j-1} N_{j-1})$ with high probability. Taking a union bound over these two sequential concentration events rigorously secures the effective sample size.
+
+    By the deterministic physical cap~\eqref{eq:physical_cap}, all covariates uniformly satisfy $\|Z_i\|_\infty \leq \|Z_i\|_1 \le C_{\max} + \sqrt{d} = \mathcal{O}(1)$. Applying Lemma 3.3 of \cite{huang2013} with $M = 2(C_{\max} + \sqrt{d})$, the score $\nabla \ell_j(\theta)$ at the true parameter is a stopped continuous-time martingale. By the exponential martingale inequality, the score concentrates around zero: $\|\nabla \ell_j(\theta)\|_\infty \leq \widetilde{\mathcal{O}}(\sqrt{n_F})$ with high probability. (The condition $\max_i N_i(1) \leq 1$ of Lemma~3.3 is satisfied because each robot lifecycle constitutes a single subject that experiences at most one failure event before replacement or right-censoring at the deterministic epoch boundary.)
+
+    To establish the uniform concentration of the empirical Hessian without relying on asymptotic limits, we bound the uniform metric entropy of the risk-set processes over $\Theta \times [0, t_{\max,j}]$. The empirical Hessian $H_j = -n_F^{-1} \nabla^2 \ell_j(\theta)$ is a continuous functional of the empirical risk-set averages:
+    \begin{equation}
+        S^{(m)}(t, \theta) = \frac{1}{n_F} \sum_{i=1}^{n_F} Y_i(t) Z_i^{\otimes m} \exp(\theta^\top Z_i), \quad \text{for } m \in \{0, 1, 2\}.
+    \end{equation}
+    Because $\|\theta\|_\infty \le 1$ for all $\theta \in \Theta$ and $\|Z_i\|_1 \le C_{\max} + \sqrt{d}$, the underlying function classes $\mathcal{G}_m^{(\theta)} = \{ z \mapsto z^{\otimes m} \exp(\theta^\top z) : \theta \in \Theta \}$ are uniformly bounded by $B_m = \mathcal{O}(1)$.
+
+    Crucially, to establish uniform concentration over time $t$, we observe that the empirical risk-set averages $S^{(m)}(t, \theta)$ only change values at discrete customer arrivals and robot failure events. In Epoch $j-1$, there are $N_{j-1}$ arrivals and at most $N_{j-1}$ failures. Thus, there are at most $2N_{j-1} \le 2K$ distinct jump points in time $t$. We can replace the supremum over continuous time $t$ with a simple maximum over these $\le 2K$ discrete points. For any fixed $t$, the function class $\mathcal{G}_m^{(t)} = \{ z \mapsto z^{\otimes m} \exp(\theta^\top z) : \theta \in \Theta \}$ is Lipschitz continuous. Because $\Theta \subset \mathbb{R}^d$ is bounded, the uniform covering number satisfies $\mathcal{N}(\epsilon, \Theta, \|\cdot\|_\infty) \le (C \cdot L / \epsilon)^d$. Taking a union bound over the discrete time points yields a total effective covering number of $\le 2K \cdot (C \cdot L / \epsilon)^d$. This gracefully bypasses the need to bound the number of jobs per lifecycle, guaranteeing the uniform deviation safely satisfies the finite-sample tail bound (with the $\log(2K)$ penalty natively absorbed by $\widetilde{\mathcal{O}}$):
+    \begin{multline}
+        \mathbb{P}\left( \sup_{t, \theta} \left\| S^{(m)}(t, \theta) - \mathbb{E}[S^{(m)}(t, \theta)] \right\| > \epsilon \right) \\
+        \le C_1 \exp\left( \log(2K) + d \log\left(\frac{C_2}{\epsilon}\right) - \frac{n_F \epsilon^2}{2 B_m^2} \right).
+    \end{multline}
+
+    By continuity of the Hessian integrand in $t$, there exists a fixed absolute $t_0 > 0$ such that the restricted population Fisher information satisfies $I|_{[0, t_0]}(\theta) \succeq \lambda_{\min} I_d$ for some $\lambda_{\min} > 0$. Setting the deviation $\epsilon$ to a sufficiently small absolute constant ensures that $\|H_j|_{[0, t_0]} - I|_{[0, t_0]}(\theta)\|_{\mathrm{op}} \le \lambda_{\min}/2$. Therefore, the ``good Hessian'' event $\mathcal{E}_{\mathrm{Hess}} := \{ H_j|_{[0, t_0]} \succeq \frac{\lambda_{\min}}{2} I_d \}$ holds with probability at least $1 - \delta_{\mathrm{Hess}}$, provided the number of failures satisfies the explicit finite-sample burn-in condition $n_F \ge \mathcal{O}\big( \frac{B_m^2}{\lambda_{\min}^2} \big( d \log(1/\epsilon) + \log(1/\delta_{\mathrm{Hess}}) \big) \big)$.
+
+    When this condition is met, the empirical Hessian at the true parameter is strictly positive-definite. Because the parameter space $\Theta$ is bounded ($\|\theta' - \theta\|_1 \le 2d$) and the physical covariates are capped ($\|Z_i\|_\infty \le \|Z_i\|_1 \le C_{\max} + \sqrt{d}$), the maximum covariate separation $\eta_{\mathbf{b}}$ for any two points in $\Theta$ is deterministically bounded. By Cauchy-Schwarz, $|\mathbf{b}^\top(Z_i - Z_j)| \le \|\mathbf{b}\|_1 \|Z_i - Z_j\|_\infty \le 2d \cdot 2(C_{\max} + \sqrt{d}) = 4d(C_{\max} + \sqrt{d}) = \mathcal{O}(1)$. By the Hessian Sandwich lemma (Lemma 3.2 of \cite{huang2013}), the positive definiteness at the true parameter globally extends to the entire parameter space: $H_j|_{[0, t_0]}(\theta') \succeq e^{-2\eta_{\mathbf{b}}} H_j|_{[0, t_0]}(\theta) \succeq \tilde{\lambda}_{\min} I_d$ for all $\theta' \in \Theta$, where $\tilde{\lambda}_{\min} = \mathcal{O}(1)$.
+
+    Therefore, the normalized partial log-likelihood $\ell_n(\theta) = \frac{1}{n_F} \ell_j(\theta)$ is strictly strongly concave over $\Theta$. Since the constrained estimator $\what{\theta}_j$ maximizes $\ell_n$ over $\Theta$, and the true parameter $\theta \in \Theta$, we have $\ell_n(\what{\theta}_j) \ge \ell_n(\theta)$. By exact Taylor expansion around $\theta$:
+    \begin{align}
+        0 &\le \ell_n(\what{\theta}_j) - \ell_n(\theta) \notag \\
+        &= \nabla \ell_n(\theta)^\top (\what{\theta}_j - \theta) - \tfrac{1}{2} (\what{\theta}_j - \theta)^\top \bar{H}_j (\what{\theta}_j - \theta) \notag \\
+        &\le \|\nabla \ell_n(\theta)\|_2 \|\what{\theta}_j - \theta\|_2 - \tfrac{\tilde{\lambda}_{\min}}{2} \|\what{\theta}_j - \theta\|_2^2.
+    \end{align}
+    Dividing by $\|\what{\theta}_j - \theta\|_2$ cleanly bounds the constrained estimator's error without falsely invoking a Euclidean projection:
+    \begin{align}
+        \|\what{\theta}_j - \theta\|_2 &\le \frac{2}{\tilde{\lambda}_{\min}} \|\nabla \ell_n(\theta)\|_2 \\
+        &\le \mathcal{O}(1) \cdot \widetilde{\mathcal{O}}\Bigg(\frac{1}{\sqrt{n_F}}\Bigg) = \widetilde{\mathcal{O}}\Bigg(\frac{1}{\sqrt{\varepsilon_{j-1} N_{j-1}}}\Bigg).
+    \end{align}
+\end{proof}
+
+\paragraph{Non-Parametric Martingale Concentration.}
+To bound the pure non-parametric error of the Breslow estimator uniformly over continuous time, we rely on Freedman's Inequality.
+
+\begin{theorem}[Freedman's Inequality {\cite{vandegeer1995, dzhaparidze2001}}]
+    \label{thm:freedman}
+    Let $M(t)$ be a continuous-time, locally square-integrable martingale with right-continuous paths, $M(0) = 0$, predictable quadratic variation $\langle M \rangle(t)$, and jump sizes strictly bounded by $\Delta M(t) \le B$ almost surely. For any $x > 0$ and $v > 0$:
+    \begin{multline}
+        \mathbb{P} \left( \sup_{t \ge 0} |M(t)| > x \quad \text{and} \quad \langle M \rangle(\infty) \le v \right) \\
+        \le 2\exp\left( - \frac{x^2}{2v + 2Bx/3} \right).
+    \end{multline}
+\end{theorem}
+
+\begin{lemma}[Breslow Error and Plug-In Decoupling]
+    \label{lem:breslow_plugin}
+    For the data-dependent truncation domain $[0, t_{\max, j}]$, the uniform estimation error of the Breslow estimator decomposes into the pure non-parametric martingale noise and the parametric plug-in effect. The total error is strictly bottlenecked by the non-parametric noise rate.
+\end{lemma}
+\begin{proof}
+    By the triangle inequality, the uniform error of the Breslow estimator decomposes as:
+    \begin{multline}
+        \sup_t |\what{\Lambda}_{0,j}(t) - \Lambda_0(t)| \le \\
+        \underbrace{\sup_t |\what{\Lambda}_{0,j}(t; \theta) - \Lambda_0(t)|}_{\text{Pure Non-Parametric Error}} + \underbrace{\sup_t |\what{\Lambda}_{0,j}(t; \what{\theta}_j) - \what{\Lambda}_{0,j}(t; \theta)|}_{\text{Plug-In Error}}.
+    \end{multline}
+
+    We first bound the pure non-parametric term. The error can be expressed as a stochastic integral with respect to the continuous-time counting process martingale $M(s)$:
+    \begin{equation}
+        \what{\Lambda}_{0,j}(t; \theta) - \Lambda_0(t) = \int_0^t \frac{1}{n_F S^{(0)}(s)} \, dM(s).
+    \end{equation}
+    On the restricted domain $[0, t_{\max,j}]$, the active risk set is strictly lower-bounded by $n_F S^{(0)}(s) \ge N_{\min} = (\varepsilon_{j-1}^2 N_{j-1})^{\alpha}$. Consequently, the maximum jump size of the stochastic integral is deterministically bounded by $B = 1/N_{\min}$. The predictable quadratic variation is bounded by $v = \int_0^{t_{\max,j}} \frac{\lambda_0(s)}{n_F S^{(0)}(s)} ds \le \frac{\overline{\lambda} t_{\max,j}}{N_{\min}} = \mathcal{O}(\log K / N_{\min})$.
+
+    Applying Freedman's Inequality (Theorem~\ref{thm:freedman}), the probability of a deviation exceeding $x$ decays exponentially. By setting $x = C \sqrt{\log(K/\delta_{\mathrm{conf}}) \log K / N_{\min}}$ for a sufficiently large constant $C$, we completely neutralize the polynomial tail fallacy and securely yield a high-probability confidence level $1 - \mathcal{O}(K^{-1})$. Thus, the pure non-parametric error is explicitly bounded by $\widetilde{\mathcal{O}}(1/\sqrt{N_{\min}}) = \widetilde{\mathcal{O}}\big((\varepsilon_{j-1}^2 N_{j-1})^{-\alpha/2}\big)$ with true exponential tails.
+
+    Consequently, because the true cumulative baseline hazard satisfies $\Lambda_0(t_{\max,j}) \le \overline{\lambda} \cdot t_{\max,j} = \mathcal{O}(\log K)$, the empirical estimator rigorously satisfies $\what{\Lambda}_{0,j}(t_{\max,j}; \theta) \le \Lambda_0(t_{\max,j}) + o(1) = \mathcal{O}(\log K)$ with high probability.
+
+    For the plug-in term, applying the Mean Value Theorem requires the local Lipschitz constant $L_\Lambda = \sup_{\tilde{\theta}, t} \|\nabla_\theta \what{\Lambda}_{0,j}(t;\tilde{\theta})\|_2$. The derivative evaluates to $\nabla_\theta \what{\Lambda}_{0,j}(t) = - \int_0^t \frac{S^{(1)}}{S^{(0)}} \, d\what{\Lambda}_{0,j}(s)$. Because the physical covariates are deterministically capped by $C_{\max} + \sqrt{d}$, the ratio $\|S^{(1)} / S^{(0)}\|_2$ is strictly bounded by $\mathcal{O}(1)$. Using the high-probability bound on the empirical hazard established above, $L_\Lambda \le \mathcal{O}(1) \cdot \what{\Lambda}_{0,j}(t_{\max,j}) = \mathcal{O}(\log K) = \widetilde{\mathcal{O}}(1)$. Multiplying this local Lipschitz constant by the parametric bound $\|\what{\theta}_j - \theta\|_2 \le \widetilde{\mathcal{O}}((\varepsilon_{j-1} N_{j-1})^{-1/2})$ yields a plug-in error of $\widetilde{\mathcal{O}}((\varepsilon_{j-1} N_{j-1})^{-1/2})$.
+
+    Combining both terms, the total uniform error is bottlenecked by the slower-decaying component. The non-parametric noise scales as $\widetilde{\mathcal{O}}((\varepsilon_{j-1}^2 N_{j-1})^{-\alpha/2})$ and the plug-in parametric error scales as $\widetilde{\mathcal{O}}((\varepsilon_{j-1} N_{j-1})^{-1/2})$. As verified formally via exponent analysis in Step 4 of the main theorem, under the optimized tuning parameters, the pure non-parametric noise decays strictly slower than the parametric plug-in error. Thus, the non-parametric term safely isolates the $\widetilde{\mathcal{O}}((\varepsilon_{j-1}^2 N_{j-1})^{-\alpha/2})$ scaling as the bottleneck.
+\end{proof}
+
+
+%% ----------------------------------------------------------------------
+\subsection*{E.~State Space Approximation}
+\label{sec:app_approx}
+%% ----------------------------------------------------------------------
+
+The continuous, potentially unbounded state space is approximated in two steps: truncation to a bounded domain, and discretization on a finite grid. Throughout this subsection, we use $\delta_N$ to denote the grid spacing.
+
+\paragraph{Truncation via Economic Optimality \& Algorithmic Shielding.}
+Recall that the context bound is $M_{cx} := \sqrt{d}$. To prevent boundary projection artifacts where the post-decision state overshoots the grid cap, we set the algorithmic degradation cap to $M_{cc} := \bar{c} + \sqrt{d}$ and truncate the state space to:
+\begin{equation}
+    \mathcal{S}_M := [0, M_{cc}] \times [0, M_{cx}] \times [0, 1] \times [0, M_T] \times [0, M_t].
+\end{equation}
+
+\begin{lemma}[Economic Degradation Truncation]
+    \label{lem:truncation}
+    Under Assumptions~\ref{ass:cost} ($F > 1$) and~\ref{ass:cox}(ii), voluntary rejection and immediate replacement becomes strictly optimal at sufficiently high degradation. During the arrival phase ($\phi=0$), as $p \to 0$ (i.e., $c_c \to \infty$):
+    \begin{align*}
+        V_{\mathrm{Reject}} &\ge -R + h^*(0, 0), \\
+        V_{\mathrm{Accept}} &= c_u - (1-p)(F+R) \\
+        &\quad + p \cdot h^*(c_c + c_x, t+T) + (1-p) \cdot h^*(0, 0).
+    \end{align*}
+    (Because rejecting the job transitions the system to the idle phase, the operator can immediately execute the \texttt{Replace} action, avoiding any holding cost). As $p \to 0$, $V_{\mathrm{Accept}} \to c_u - (F + R) + h^*(0, 0)$. For rejection to be strictly optimal over acceptance, we need $V_{\mathrm{Accept}} < V_{\mathrm{Reject}}$, which evaluates to $c_u - (F+R) < -R \iff c_u < F$. Since $c_u \le 1 < F$ unconditionally (Assumption~\ref{ass:cost}), this inequality holds strictly. Therefore, there exists a finite economic threshold $\bar{c} = \mathcal{O}(1)$ such that for all $c_c > \bar{c}$, the unconstrained optimal policy $\pi^*$ strictly rejects the job and replaces the robot.
+
+    An arriving job causes degradation to jump to at most $c_c + c_x \le \bar{c} + \sqrt{d}$. By expanding the algorithmic grid cap to $M_{cc} = \bar{c} + \sqrt{d}$, we seamlessly contain any one-step overshoot without artificial projection. Because $\pi^*$ replaces prior to reaching $\bar{c}$, this expanded cap is exactly non-binding. The truncation error is exactly zero: $h^*_{\mathrm{trunc}}(s) = h^*(s)$ for all $s \in \mathcal{S}_{M}$.
+
+    \emph{Global Consistency (Algorithmic Shielding):} During Phase 2 data collection, random exploratory actions may physically push the robot to states near the computational grid boundary. Because the empirical policy $\what{\pi}(s)$ is undefined beyond the grid, the online algorithm explicitly hardcodes a forced \texttt{Replace} action for any physical state where $\what{\theta}_j^\top X > M_{cc}$. This completely shields the undefined grid coordinates from out-of-bounds array queries, enforcing continuous-time global consistency without inflating suboptimality.
+\end{lemma}
+
+\begin{lemma}[Duration and Active-Time Truncation]
+    \label{lem:truncation_T}
+    Let $M_T = -\log(\delta_T)/\mu_T$. To guarantee safety from overshoot without imposing implicit assumptions on the physical rates, we decouple the axes by defining $M_t = M_T + \log(1/\delta_t)/\underline{\lambda}$, strictly ensuring $M_t > M_T$. The online algorithm mathematically mandates a hard \texttt{Replace} trigger immediately prior to the truncation boundaries ($t = M_t - M_T$). The total average-reward absolute error satisfies:
+    \begin{multline}
+        \|h^*_{\mathrm{trunc}} - h^*\|_\infty \leq T_{\mathrm{hit}} \cdot \bigg[ 2(R_{\max}+R)(\delta_T + \delta_t) + \rho^* \frac{\delta_T}{\mu_T} \bigg] \\
+        = \mathcal{O}(\delta_T + \delta_t).
+    \end{multline}
+\end{lemma}
+
+\begin{proof}
+    A naive uniform truncation introduces an $\Omega(1)$ local boundary error. By hardcoding an artificial \texttt{Replace} trigger before the boundary, any state trajectory is forced to terminate exactly at $(0,0)$. By decoupling $M_t$ and $M_T$, we guarantee $M_t - M_T = \log(1/\delta_t)/\underline{\lambda} > 0$ strictly by construction. Because the unconstrained probability of a requested duration exceeding $M_T$ is exactly $\delta_T$, and the probability of surviving the remaining $M_t - M_T$ operational time is bounded by $\exp(-\underline{\lambda} \log(1/\delta_t)/\underline{\lambda}) = \delta_t$, the one-step Bellman value mismatch is probabilistically suppressed by at most $\delta_T$ or $\delta_t$ times the max span $2(R_{\max} + R)$. Truncating the rental duration also induces an expected sojourn-time perturbation bounded by $\rho^* \delta_T / \mu_T$. Because the SMDP is an infinite-horizon average-reward unichain, these local, one-step Bellman perturbations must be algebraically amplified by the expected hitting time to the recurrent reset state ($T_{\mathrm{hit}} = \mathcal{O}(1)$). Multiplying the sum of the value and sojourn perturbations by $T_{\mathrm{hit}}$ rigorously bounds the absolute infinity-norm error $\|h^*_{\mathrm{trunc}} - h^*\|_\infty$, completely eliminating the unbounded $\Omega(1)$ continuation boundary error.
+\end{proof}
+
+\paragraph{Lipschitz Continuity of the Bias Function.}
+
+\begin{lemma}[Lipschitz Continuity of the Bias Function]
+    \label{lem:lipschitz}
+    Under the truncation from Lemmas~\ref{lem:truncation}--\ref{lem:truncation_T}, the optimal bias function $h^*(s)$ satisfies
+    \begin{equation}
+        |h^*(s_{1}) - h^*(s_{2})| \leq L_h \|s_{1} - s_{2}\|_\infty,
+    \end{equation}
+    where $L_h = \mathcal{O}(1)$ is a constant depending only on the model parameters, completely independent of discretization resolution.
+\end{lemma}
+
+\begin{proof}
+    The bias function satisfies the Poisson equation. Unlike discounted MDPs, the relative value iteration operator for average-reward SMDPs is non-expansive (1-Lipschitz in the span seminorm), not a strict contraction. To establish uniform Lipschitz continuity without a discount factor, we leverage the system's unichain structure induced by the physical replacement mechanics.
+
+    Because the \texttt{Replace} action is available at any state for a finite cost $R$, returning the system to the recurrent state $(0,0)$, the SMDP is uniformly weakly communicating. Under the optimal policy, because the degradation state is economically capped at $\bar{c}$ (Lemma~\ref{lem:truncation}), the robot is voluntarily replaced after a stochastically bounded number of jobs. Thus, the expected hitting time to $(0,0)$ from any state is strictly bounded by an absolute constant $T_{\mathrm{hit}} = \mathcal{O}(1)$.
+
+    For departure-phase states, the one-step expected reward $r(s,a)$ and sojourn time $\E[\tau(s)]$ depend on the survival probability, which possesses strictly bounded partial derivatives on the truncated domain ($|\partial S(t)/\partial c_c| \leq 1/e$). The physical next-state map $(c_c, t) \mapsto (c_c + c_x, t + T)$ upon survival is an exact coordinate translation (1-Lipschitz).
+
+    Because $h^*(s)$ is mathematically equivalent to the expectation of a finite-horizon sum of these uniformly Lipschitz continuous step-rewards and holding times over at most $T_{\mathrm{hit}}$ expected steps until resetting at $(0,0)$, $h^*(s)$ natively inherits their Lipschitz properties. Therefore, the global Lipschitz constant is bounded by $L_h = \mathcal{O}(T_{\mathrm{hit}}) = \mathcal{O}(1)$.
+\end{proof}
+
+\paragraph{Discretization.}
+On the truncated domain $\mathcal{S}_M$, we discretize each dimension with $N$ uniformly spaced grid points, yielding grid spacing $\delta_N := M_{\max} / N$.
+
+\begin{proposition}[Discretization Error]
+    \label{prop:discretization}
+    Let $h^*$ be the optimal bias function for the continuous-state SMDP on $\mathcal{S}_M$, and let $h^*_N$ be the optimal bias function for the discretized SMDP. Then
+    \begin{equation}
+        \|h^* - h^*_N\|_\infty \leq \mathcal{O}(\delta_N).
+    \end{equation}
+\end{proposition}
+\begin{proof}
+    As established in Lemma~\ref{lem:lipschitz}, the expected hitting time to the recurrent reset state $(0,0)$ under the optimal policy is strictly bounded by $T_{\mathrm{hit}} = \mathcal{O}(1)$.
+
+    The spatial discretization of the state space to a grid with spacing $\delta_N$ introduces a local, one-step Bellman approximation error bounded by the Lipschitz modulus $L_h \cdot \delta_N$. In average-reward unichain SMDPs, by anchoring the bias functions at the reset state $h^*(0,0) = h^*_N(0,0) = 0$, this local discretization error accumulates strictly over the expected hitting time to the recurrent state, rather than over an infinite horizon.
+
+    Therefore, the maximum uniform error between the continuous and discrete bias functions is bounded by the local error multiplied by the expected hitting time: $\|h^* - h^*_N\|_\infty \le T_{\mathrm{hit}} \cdot L_h \delta_N = \mathcal{O}(\delta_N)$. This exact propagation ensures the error scales linearly without blowing up or requiring mixing times.
+\end{proof}
+
+
+%% ----------------------------------------------------------------------
+\subsection*{F.~MDP Sensitivity to Parameter Estimation}
+\label{sec:app_sensitivity}
+%% ----------------------------------------------------------------------
+
+In this subsection, we bound the pointwise suboptimality of the estimated policy $\what{\pi}$ when deployed in the true continuous environment. Because the continuous-time regret decomposition (Subsection~G) tracks the sample path via the advantage function, we must bound the true advantage $A^*(s, \what{\pi}(s))$ uniformly for all states, isolating the exact perturbations caused by discretization and parameter estimation.
+
+To resolve the contradiction between the unbounded SMDP state space and the data-dependent PFU truncation (Lemma~\ref{lem:breslow_tail}), we formally partition the truncated grid $\mathcal{S}_M$ into a statistical \emph{estimation domain} $\mathcal{E}_{\mathrm{est},j} = \{s \in \mathcal{S}_M : t_{\mathrm{age}} + T \le t_{\max,j}\}$ and a \emph{pessimistic tail} $\mathcal{S}_{\mathrm{tail},j} = \mathcal{S}_M \setminus \mathcal{E}_{\mathrm{est},j}$.
+
+\begin{proposition}[Advantage Perturbation Bound]
+    \label{prop:perturbation}
+    Let $\what{\pi}_j$ be the greedy policy computed for the discretized empirical SMDP using the estimated parameters $\what{\omega}$. On the restricted estimation domain $\mathcal{E}_{\mathrm{est},j}$, the true advantage evaluated on the PFU-truncated MDP satisfies:
+    \begin{multline}
+        \label{eq:perturbation_main}
+        A^*_{\mathrm{PFU}}(s, \what{\pi}_j(s); \omega) \leq 2 \|Q^*_{\mathrm{PFU}} - \what{Q}_N\|_{\infty, \mathcal{E}_{\mathrm{est},j}} \\
+        \leq \mathcal{O}(\varepsilon_{\mathrm{surv},j} \log^2 K) + \mathcal{O}(\varepsilon_u \log K) + \mathcal{O}(\delta_N \log K),
+    \end{multline}
+    where $\varepsilon_{\mathrm{surv},j} = \sup_{t \le t_{\max,j}} |S(t) - \what{S}(t)|$ is the uniform survival error exclusively on the estimation domain, $\varepsilon_u$ is the pricing error, and $\delta_N = M_{\max}/N$ is the grid spacing.
+\end{proposition}
+
+\begin{proof}
+    Let $\what{Q}_N(s, a)$ be the empirical Q-function on the discretized SMDP. The empirical policy is greedy: $\what{\pi}_j(s) = \arg\max_a \what{Q}_N(s, a)$. On $\mathcal{E}_{\mathrm{est},j}$, both the PFU-truncated true MDP $M^*_{\mathrm{PFU}}$ and the empirical MDP unconditionally reject any transitions into the tail, aligning their structural transitions perfectly. Thus, the continuous advantage on the PFU-truncated MDP satisfies $A^*_{\mathrm{PFU}}(s, \what{\pi}_j(s)) \le 2 \|Q^*_{\mathrm{PFU}} - \what{Q}_N\|_{\infty, \mathcal{E}_{\mathrm{est},j}}$.
+
+    To bound the uniform Q-value error without relying on global mixing times, we leverage the unichain hitting time to the reset state $(0,0)$. By the economic cap (Lemma~\ref{lem:truncation}), the true optimal policy forces a replacement after a stochastically bounded number of jobs. Thus, the expected hitting time measured in discrete customer steps is bounded by an absolute constant $N_{\mathrm{steps}} = \mathcal{O}(1)$. Anchoring the bias functions at $h(0,0)=0$, the Poisson equation unrolling over a single hitting-time cycle accumulates the one-step Bellman perturbation and the gain shift error at every step. Concretely, each discrete step $i$ in the cycle contributes a one-step Bellman perturbation $\varepsilon_{\mathrm{Bell},j}$, a grid discretization error $L_h \delta_N$, and a gain shift penalty $|\rho^*_{\mathrm{PFU}} - \what{\rho}_N| \cdot \E[\tau_i \mid s_i]$. Summing over the $N_{\mathrm{steps}}$ steps of the cycle, the uniform Q-value error on the estimation domain satisfies:
+    \begin{multline}
+        \label{eq:Q_error_decomp}
+        \|Q^*_{\mathrm{PFU}} - \what{Q}_N\|_{\infty, \mathcal{E}_{\mathrm{est},j}} \\
+        \leq N_{\mathrm{steps}} \Big(\varepsilon_{\mathrm{Bell},j} + L_h \delta_N \\
+        + |\rho^*_{\mathrm{PFU}} - \what{\rho}_N| \cdot M_T\Big).
+    \end{multline}
+
+    The one-step Bellman perturbation $\varepsilon_{\mathrm{Bell},j}$ evaluated strictly on $\mathcal{E}_{\mathrm{est},j}$ is:
+    \begin{equation}
+        \label{eq:bell_def}
+        \varepsilon_{\mathrm{Bell},j} := \varepsilon_r + \mathrm{sp}(h^*) \varepsilon_{\mathrm{surv},j} + \rho^*_{\mathrm{PFU}} \big|\E[\tau \mid s] - \what{\E}[\tau \mid s]\big|.
+    \end{equation}
+    By the span bound~\eqref{eq:span_bound}, $\mathrm{sp}(h^*) \leq R = \mathcal{O}(1)$. Because the rental duration is truncated at $M_T = \mathcal{O}(\log K)$, the sojourn time error is bounded by $M_T \cdot \varepsilon_{\mathrm{surv},j}$. Therefore:
+    \begin{equation}
+        \label{eq:bell_bound}
+        \varepsilon_{\mathrm{Bell},j} \leq \varepsilon_r + \mathcal{O}(\log K) \cdot \varepsilon_{\mathrm{surv},j}.
+    \end{equation}
+
+    Standard average-reward perturbation bounds the global gain error by the maximum one-step error: $|\rho^*_{\mathrm{PFU}} - \what{\rho}_N| \le \mathcal{O}(\varepsilon_{\mathrm{Bell},j} + \delta_N)$. Substituting~\eqref{eq:bell_bound} and $M_T = \mathcal{O}(\log K)$ into~\eqref{eq:Q_error_decomp}, and absorbing $N_{\mathrm{steps}} = \mathcal{O}(1)$:
+    \begin{align}
+        &\|Q^*_{\mathrm{PFU}} - \what{Q}_N\|_{\infty, \mathcal{E}_{\mathrm{est},j}} \notag \\
+        &\leq \mathcal{O}(1)\Big(\varepsilon_{\mathrm{Bell},j} + L_h \delta_N \notag \\
+        &\qquad + \mathcal{O}(\varepsilon_{\mathrm{Bell},j} + \delta_N) \cdot M_T\Big) \notag \\
+        &= \mathcal{O}(\varepsilon_{\mathrm{Bell},j} \log K) + \mathcal{O}(\delta_N \log K). \label{eq:Q_error_final}
+    \end{align}
+    Because $\varepsilon_{\mathrm{Bell},j}$ already scales as $\varepsilon_r + \mathcal{O}(\varepsilon_{\mathrm{surv},j} \log K)$ by~\eqref{eq:bell_bound}, the composed temporal amplification produces an explicit $\mathcal{O}(\varepsilon_{\mathrm{surv},j} \log^2 K) + \mathcal{O}(\varepsilon_r \log K)$ penalty. Substituting $\varepsilon_r \le \varepsilon_u + \mathcal{O}(\varepsilon_{\mathrm{surv},j})$ (from Lemma~\ref{lem:reward_perturbation}), this directly yields the final bound.
+\end{proof}
+
+\begin{lemma}[Survival Probability Sensitivity]
+    \label{lem:pointwise_sensitivity}
+    On the restricted estimation domain $\mathcal{E}_{\mathrm{est},j} = \mathcal{S}_M \cap \{t_{\mathrm{age}} + T \le t_{\max,j}\}$, the survival probability $S(t) = \exp(-e^{c_c+c_x} \cdot \Delta\Lambda(0,t))$ satisfies the uniform worst-case bound:
+    \begin{multline}
+        \label{eq:pfail_linf}
+        \sup_{s \in \mathcal{E}_{\mathrm{est},j},\, t \le t_{\max,j}} |S(t; \omega) - S(t; \what{\omega})| \\
+        \leq C_{\mathrm{sens}} \cdot (\varepsilon_\theta + \varepsilon_\Lambda),
+    \end{multline}
+    where $C_{\mathrm{sens}} = \mathcal{O}(1)$ is an absolute constant, $\varepsilon_\theta = \|\what{\theta} - \theta\|_2$, and $\varepsilon_\Lambda = \sup_{t \in [0, t_{\max,j}]} |\what{\Lambda}_0(t) - \Lambda_0(t)|$.
+\end{lemma}
+
+\begin{proof}
+    The bound is a direct application of the Mean Value Theorem to the survival function evaluated strictly on the estimation domain.
+
+    On the computational grid $\mathcal{S}_M$, the degradation state reaches up to $M_{cc} = \bar{c} + \sqrt{d}$. Adding the customer context $c_x \leq \sqrt{d}$, the evaluated projection $c = c_c + c_x$ is deterministically bounded by $\bar{c} + 2\sqrt{d}$. Furthermore, let the combined physical covariate vector be $z = X + x$. On the truncated grid, we deterministically have $\|z\|_2 \le \|z\|_1 \le C_{\max} + \sqrt{d}$.
+
+    Any intermediate evaluation point $\tilde{c}$ therefore strictly satisfies $\tilde{c} \le \max(\bar{c} + 2\sqrt{d}, C_{\max} + \sqrt{d})$. The exponential hazard multiplier is an absolute constant bounded by $C_{\exp} := \exp(\max(\bar{c} + 2\sqrt{d}, C_{\max} + \sqrt{d})) = \mathcal{O}(1)$.
+
+    By the MVT applied to $S = \exp(-e^c \cdot \Lambda)$ with respect to $\Lambda$:
+    \begin{equation}
+        \bigg|\frac{\partial S}{\partial \Lambda}\bigg| = e^c \cdot \exp(-e^c \cdot \Lambda) \leq e^c \leq C_{\exp} = \mathcal{O}(1).
+    \end{equation}
+    By the MVT applied with respect to the parameter vector $\theta$: the projection difference satisfies $|c(\omega) - c(\what{\omega})| = |z^\top (\theta - \what{\theta})| \le \|z\|_2 \|\theta - \what{\theta}\|_2 \le (C_{\max} + \sqrt{d}) \varepsilon_\theta$. Let $y := e^c \cdot \Lambda \geq 0$. Then $|\frac{\partial S}{\partial c}| = y\,e^{-y} \le 1/e$.
+
+    Applying the chain rule alongside the covariate norm bound, uniformly for any $t \le t_{\max,j}$:
+    \begin{multline}
+        \label{eq:pfail_pointwise}
+        |S(t; \omega) - S(t; \what{\omega})| \leq C_{\exp} \cdot \varepsilon_\Lambda \\
+        + \tfrac{C_{\max} + \sqrt{d}}{e} \cdot \varepsilon_\theta = \mathcal{O}(1) \cdot (\varepsilon_\theta + \varepsilon_\Lambda).
+    \end{multline}
+    Setting $C_{\mathrm{sens}} = \max(C_{\exp},\, (C_{\max} + \sqrt{d})/e) = \mathcal{O}(1)$ completes the proof.
+\end{proof}
+
+\begin{lemma}[Reward and Bellman Perturbation]
+    \label{lem:reward_perturbation}
+    On the estimation domain $\mathcal{E}_{\mathrm{est},j}$, the maximum reward perturbation satisfies
+    \begin{equation}
+        \varepsilon_r := \sup_{s \in \mathcal{E}_{\mathrm{est},j}, a} |r(s, a; \omega) - r(s, a; \what{\omega})| \leq \varepsilon_u + \mathcal{O}(1) \cdot (\varepsilon_\theta + \varepsilon_\Lambda).
+    \end{equation}
+    Combining this with the SMDP perturbation bound~\eqref{eq:bell_bound} and the survival sensitivity~\eqref{eq:pfail_linf}, the localized one-step SMDP Bellman perturbation satisfies
+    \begin{equation}
+        \label{eq:bell_total}
+        \varepsilon_{\mathrm{Bell},j} \leq \varepsilon_u + \mathcal{O}(\log K) \cdot (\varepsilon_\theta + \varepsilon_\Lambda).
+    \end{equation}
+\end{lemma}
+
+\begin{proof}
+    The reward perturbation decomposes into revenue error $|c_u - \what{c}_u| \leq \varepsilon_u$ and cost error from the failure probability. By Lemma~\ref{lem:pointwise_sensitivity}, the uniform cost error evaluates strictly on $\mathcal{E}_{\mathrm{est},j}$ as $(F+R) \cdot \sup_{t \le t_{\max,j}} |S(t) - \what{S}(t)| \le \mathcal{O}(1) \cdot (\varepsilon_\theta + \varepsilon_\Lambda)$. Substituting this into the SMDP perturbation bound~\eqref{eq:bell_bound} gives the result. Note that Proposition~\ref{prop:perturbation} correctly amplifies this local $\varepsilon_{\mathrm{Bell},j}$ by an additional $\mathcal{O}(\log K)$ factor to rigorously account for the temporal gain shift error over $M_T$.
+\end{proof}
+
+
+%% ----------------------------------------------------------------------
+\subsection*{G.~Main Convergence Theorem}
+\label{sec:app_main}
+%% ----------------------------------------------------------------------
+
+We now combine all results to state and prove the main convergence theorem. The proof is structured around a continuous-time regret decomposition that respects the SMDP structure, a strict Phase~1/Phase~2 algorithmic separation that guarantees stationarity for the Cox empirical process bounds, and a doubling-epoch schedule within Phase~2 that freezes the degradation policy to legalize the i.i.d.\ data requirements.
+
+\paragraph{Continuous-Time SMDP Regret Framework.}
+Define the total elapsed time over $K$ customer transitions as $\mathcal{T}[K] = \sum_{k=1}^K \tau_k$, where $\tau_k$ denotes the sojourn time in the $k$-th state (encompassing idle and rental periods). The continuous-time cumulative regret over $K$ transitions is
+\begin{equation}
+    \label{eq:ct_regret}
+    \mathrm{Regret}(K) := \rho^*\,\mathcal{T}[K] - \sum_{k=1}^K r_k,
+\end{equation}
+where $\rho^*$ is the optimal average reward per unit time. Note the dimensional consistency: $\rho^*$ (reward/time) multiplies $\mathcal{T}[K]$ (time) to yield absolute reward, matching $\sum r_k$.
+
+\paragraph{Continuous-time Poisson equation and Advantage function.}
+The optimal bias function $h^*$ satisfies the SMDP Poisson equation~\eqref{eq:poisson}. Rearranging, the exact Advantage function for state-action pair $(s_k, a_k)$ is
+\begin{multline}
+    \label{eq:advantage}
+    A^*(s_k, a_k) := \rho^*\,\E[\tau_k \mid s_k, a_k] - \E[r_k \mid s_k, a_k] \\
+    - \E[h^*(s_{k+1}) \mid s_k, a_k] + h^*(s_k) \geq 0,
+\end{multline}
+with equality if and only if $a_k$ is optimal at $s_k$. Substituting~\eqref{eq:advantage} into~\eqref{eq:ct_regret} and adding and subtracting conditional expectations yields the fundamental decomposition:
+\begin{multline}
+    \label{eq:ct_decomp}
+    \mathrm{Regret}(K) = \sum_{k=1}^K A^*(s_k, a_k) + M_1^K + M_2^K + M_3^K \\
+    - h^*(s_1) + h^*(s_{K+1}),
+\end{multline}
+where $M_1^K, M_2^K, M_3^K$ arise from the gap between realized and conditional-expected quantities. To decompose the advantage sum $\sum A^*(s_k, a_k)$ into its conditional expectation over the $\varepsilon$-greedy randomization plus a fourth MDS $M_4^K$, we define the following four zero-mean Martingale Difference Sequences:
+\begin{align}
+    M_1^K &:= \rho^* \sum_{k=1}^K \big(\tau_k - \E[\tau_k \mid s_k, a_k]\big), \label{eq:M1} \\
+    M_2^K &:= -\sum_{k=1}^K \big(r_k - \E[r_k \mid s_k, a_k]\big), \label{eq:M2} \\
+    M_3^K &:= \sum_{k=1}^K \big(\E[h^*(s_{k+1}) \mid s_k, a_k] - h^*(s_{k+1})\big), \label{eq:M3} \\
+    M_4^K &:= \sum_{k=1}^K \Big( A^*(s_k, a_k) - \E_{a \sim \pi_k}[A^*(s_k, a) \mid s_k] \Big), \label{eq:M4}
+\end{align}
+where $\pi_k$ denotes the actual behavioral policy deployed at step $k$. Because the expected sojourn time is bounded by the algorithmic duration cap $M_T = \mathcal{O}(\log K)$, the pointwise advantage evaluates strictly to $A^*(s_k, a_k) \le \rho^* M_T + \mathrm{sp}(h^*) = \mathcal{O}(\log K)$. We define this maximum pointwise advantage bound as $A_{\max} = \mathcal{O}(\log K)$.
+
+\begin{quote}
+\textbf{Theorem~2.19 of~\cite{wainwright2019} (Martingale Bernstein Inequality).}
+\textit{Let $\{(D_k, \mathcal{F}_k)\}_{k=1}^\infty$ be a martingale difference sequence, and suppose that $\E[e^{\lambda D_k} \mid \mathcal{F}_{k-1}] \le e^{\lambda^2 v_k^2 / 2}$ almost surely for any $|\lambda| < 1/\alpha_k$. Then:}
+\begin{enumerate}
+    \item[(a)] \textit{The sum $\sum_{k=1}^n D_k$ is sub-exponential with parameters $\big(\sqrt{\sum_{k=1}^n v_k^2},\; \alpha_*\big)$ where $\alpha_* := \max_{k=1,\ldots,n} \alpha_k$.}
+    \item[(b)] \textit{The sum satisfies the concentration inequality}
+    {\small
+    \begin{equation}
+        \mathbb{P}\!\left(\bigg|\sum_{k=1}^n D_k\bigg| \ge t\right) \le \begin{cases} 2\exp\!\Big(-\tfrac{t^2}{2\sum v_k^2}\Big) & 0 \le t \le \tfrac{\sum v_k^2}{\alpha_*}, \\[6pt] 2\exp\!\Big(-\tfrac{t}{2\alpha_*}\Big) & t > \tfrac{\sum v_k^2}{\alpha_*}. \end{cases}
+    \end{equation}
+    }
+\end{enumerate}
+\end{quote}
+
+\begin{lemma}[MDS Concentration]
+    \label{lem:mds_concentration}
+    Each of $M_1^K$, $M_2^K$, $M_3^K$, $M_4^K$ is $\widetilde{\mathcal{O}}(\sqrt{K})$ with high probability. In particular, for any $\delta > 0$,
+    \begin{equation}
+        \label{eq:mds_bound}
+        P\!\big(|M_i^K| > C_M \sqrt{K \log(1/\delta)}\big) \leq \delta, \quad i \in \{1, 2, 3, 4\},
+    \end{equation}
+    where $C_M = \mathcal{O}(\log K)$ depends only on $\rho^*, R_{\max}, R, \mu_\tau, \mu_T$.
+\end{lemma}
+
+\begin{proof}
+    We verify sub-exponential tail conditions for each MDS.
+
+    \emph{$M_1^K$ (sojourn time MDS):} Since interarrival times $\tau_k \sim \mathrm{Exp}(\mu_\tau)$ and rental durations $T_k \sim \mathrm{Exp}(\mu_T)$ are exponentially distributed, the sojourn time $\tau_k$ has sub-exponential tails. Formally, each centered increment $D_{1,k} := \rho^*(\tau_k - \E[\tau_k \mid s_k, a_k])$ belongs to the Orlicz $\psi_1$ space with $\|D_{1,k}\|_{\psi_1} \leq C_1 := \rho^* / \mu_\tau = O(1)$. The predictable quadratic variation satisfies $\sum_{k=1}^K \E[D_{1,k}^2 \mid \mathcal{F}_{k-1}] \leq C_1^2 K$.
+
+    \emph{$M_2^K$ (reward MDS) and $M_4^K$ (action MDS):} The realized reward $r_k$ includes the holding cost $-h \tau_k$. Because interarrival times $\tau_k \sim \mathrm{Exp}(\mu_\tau)$, the rewards are strictly sub-exponential. Consequently, the increments $D_{2,k}$ possess a bounded Orlicz $\psi_1$ norm: $\|D_{2,k}\|_{\psi_1} \leq \mathcal{O}(R_{\max} + h/\mu_\tau)$. Furthermore, because expected sojourn times can reach $M_T = \mathcal{O}(\log K)$, the maximum pointwise advantage is bounded by $A_{\max} = \rho^* M_T + R_{\max} + R = \mathcal{O}(\log K)$. The action MDS $M_4^K$ is thus bounded by $\mathcal{O}(\log K)$, preserving sub-exponential concentration with safely absorbed logarithmic factors. Thus, all MDS terms satisfy the exact requirements for sub-exponential concentration.
+
+    \emph{$M_3^K$ (next-state MDS):} Since $\mathrm{sp}(h^*) \leq R$ by~\eqref{eq:span_bound}, each increment satisfies $|D_{3,k}| \leq 2R$, so $\|D_{3,k}\|_{\psi_1} \leq 2R$.
+
+    Because all increments are sub-exponential ($\psi_1$) and adapted to the natural filtration $\{\mathcal{F}_k\}$, we apply the Martingale Bernstein inequality (Theorem~2.19, Wainwright~\cite{wainwright2019}; see also Freedman's inequality). For a martingale $M^K = \sum_{k=1}^K D_k$ with $\|D_k\|_{\psi_1} \leq b$ and predictable quadratic variation $V_K = \sum_{k=1}^K \E[D_k^2 \mid \mathcal{F}_{k-1}] \leq \sigma^2 K$, the Bernstein-type bound gives, for all $t > 0$:
+    \begin{equation}
+        P(|M^K| > t) \leq 2\exp\!\left(-\frac{t^2/2}{\sigma^2 K + bt}\right).
+    \end{equation}
+    Setting $t = C_M\sqrt{K\log(1/\delta)}$ with $C_M$ chosen appropriately (depending on $\sigma^2$ and $b$) yields the claimed bound~\eqref{eq:mds_bound}, which is $\widetilde{O}(\sqrt{K})$ with high probability. Crucially, no truncation of the exponential sojourn times is applied---the sub-exponential tail structure is used natively, preserving the exact zero-mean martingale property without introducing deterministic drift.
+\end{proof}
+
+\paragraph{Algorithmic Structure: Strict Phase Separation and Epoch Freezing.}
+The algorithm operates in two strictly separated phases.
+
+\paragraph{Phase 1 (Utility Estimation).}
+Run the Projected Volume algorithm with live centroid prices until precision $\varepsilon_u = K^{-p}$ is achieved. Let $T_1$ be this data-dependent stopping time; by Lemma~\ref{lem:phase1}, $T_1 = \mathcal{O}(d\log K)$ with high probability. Lock the pricing estimate at $\what{u}$ for the remainder of the horizon. Crucially, \textbf{no data from Phase~1 is fed to the Cox model}.
+
+\begin{remark}[Filtration Reset via Strong Markov]
+    Using a data-dependent random stopping time $T_1$ typically introduces optional stopping bias. If we retained the Phase~1 degradation data, the survival times would be statistically entangled with the stopping trigger, violating the conditionally i.i.d.\ assumptions required for martingale concentration. However, $T_1$ is a valid finite stopping time adapted to the history of customer arrivals. Because the underlying arrival process and context sequence are strictly memoryless, discarding the Phase~1 data allows us to rigorously invoke the Strong Markov Property. By mathematically resetting the filtration at $T_1$, the post-$T_1$ sequence of customer arrivals and robot lifecycles is conditionally independent of the pre-$T_1$ sample path. This perfectly preserves the conditionally i.i.d.\ structure of the subsequent Phase~2 epochs without requiring a conservative, oracle-tuned deterministic Phase~1 budget. The Phase~1 regret is bounded by $A_{\max} \cdot T_1 = \mathcal{O}(\log^2 K)$.
+\end{remark}
+
+\paragraph{Phase 2 (Memoryless Epochs with Deterministic Horizons).}
+To rigorously preserve the conditionally i.i.d.\ structure of the data and avoid right-censoring optional-stopping biases, epochs are defined by a deterministic number of customer arrivals rather than random failure counts. Epoch~$j$ spans exactly $N_j = 2^j$ customer arrivals.
+
+At the start of Epoch~$j$:
+\begin{enumerate}
+    \item \textbf{Execute a forced \texttt{Replace} action} (incurring cost $R$) to reset the physical state to $(0,0)$. This strictly prevents left-truncation bias across epoch boundaries and guarantees the initial state of the first lifecycle is identical to the rest. The total $\mathcal{O}(\log K)$ cost over all epochs is negligibly absorbed.
+    \item We use \textbf{only the data collected during the immediately preceding Epoch~$j-1$}. Since the policy $\what{\pi}_{j-1}$ and exploration rate $\varepsilon_{j-1}$ were strictly frozen, and the epoch began at $(0,0)$, the robot lifecycles are rigorously conditionally i.i.d.
+    \item Compute the Cox estimators $(\what{\theta}_j, \what{\Lambda}_{0,j})$ and the data-dependent Breslow cutoff $t_{\max,j}$.
+    \item Solve the discretized SMDP using Pessimism in the Face of Uncertainty (PFU) for the unmodeled tail.
+    \item \textbf{Freeze} the resulting policy $\what{\pi}_j$ for the entirety of Epoch~$j$, deploying its $\varepsilon_j$-greedy randomization. To prevent undefined array accesses and boundary contamination when the physical state exceeds the computational grid boundaries during exploration, the operator strictly hardcodes a forced \texttt{Reject} and \texttt{Replace} trigger for any physical state where $\what{\theta}_j^\top X > M_{cc}$ or $t > M_t - M_T$.
+\end{enumerate}
+
+\begin{remark}[Predictable Stopping]
+    \label{rem:stationarity}
+    Using only the preceding epoch's data is critical for mathematical rigor. Because the pricing estimate $\what{u}$ is locked and the degradation policy $\what{\pi}_{j-1}$ was strictly frozen during Epoch~$j-1$, the customer acceptance boundary was fixed. Because the epoch is defined by a strictly deterministic number of customer arrivals $N_j = 2^j$, the total elapsed calendar time of the epoch constitutes a predictable stopping time w.r.t.\ the customer arrival filtration. Administrative right-censoring at a predictable stopping time mathematically preserves the exact zero-mean martingale property of the continuous-time Cox score via Doob's Optional Stopping Theorem. Furthermore, while the predictable variation process $\langle M \rangle$ relies on the coupled at-risk sets, its finite-sample concentration securely holds because $\langle M \rangle_t = \int_0^t Y(s) \lambda_0(s)\,ds$ is strictly upper-bounded by $\overline{\lambda}$ (Assumption~\ref{ass:cox}(ii)) times the aggregate empirical exposure time of the epoch. Because the total calendar exposure time concentrates exponentially via standard Gamma tail bounds (independent of the exact terminal lifecycle coupling), this guarantees strict mathematical compliance with the empirical process bounds (Lemma~\ref{lem:theta_concentration}) and Breslow concentration (Lemma~\ref{lem:breslow_plugin}), cleanly averting the renewal inspection paradox.
+\end{remark}
+
+\paragraph{Main Result.}
+
+\begin{theorem}[Average-Reward Regret Bound]
+    \label{thm:main}
+    Under Assumptions~\ref{ass:context}--\ref{ass:communicating}, consider the memoryless-epoch algorithm described above with:
+    \begin{itemize}
+        \item economic degradation cap $M_{cc} = O(1)$ (Lemma~\ref{lem:truncation}, zero truncation error under $F > 1$);
+        \item data-dependent Breslow cutoff $t_{\max,j}$ (Lemma~\ref{lem:breslow_tail});
+        \item data-dependent Breslow cutoff threshold $N_{\min} = (\varepsilon_{j-1}^2 N_{j-1})^\alpha$ with $\alpha = \frac{2\gamma'}{2\gamma'+1}$;
+        \item rental-duration cap $M_T = \mathcal{O}(\log K)$ via $\delta_T = 1/K$ (Lemma~\ref{lem:truncation_T});
+        \item active-time state-space cap $M_t = \mathcal{O}(\log K)$ via $\delta_t = 1/K$ (Lemma~\ref{lem:truncation_T});
+        \item discretization with $N = \Theta(K^{p})$ grid points per dimension, yielding spacing $\delta_N = \mathcal{O}(K^{-p} \log K)$;
+        \item exploration rate $\varepsilon = K^{-p}$ and Phase~1 precision $\varepsilon_u = K^{-p}$;
+        \item optimal balancing exponent $p = \frac{\gamma'}{4\gamma'+1}$;
+        \item universal hazard ratio $\gamma' = \underline{\lambda} / (\mu_T + \lambda_{\max}) \in (0, 1)$.
+    \end{itemize}
+    Let $\rho^*$ be the optimal average-reward rate and define the continuous-time average-reward regret as
+    \begin{equation}
+        \label{eq:avg_regret_def}
+        \rho^* - \frac{\sum_{k=1}^K r_k}{\mathcal{T}[K]}.
+    \end{equation}
+    Then, with probability at least $1 - \delta_{\mathrm{conf}}$ for any prescribed $\delta_{\mathrm{conf}} \in (0,1)$, for all $K$ sufficiently large:
+    \begin{equation}
+        \label{eq:main_rate}
+        \rho^* - \frac{\sum_{k=1}^K r_k}{\mathcal{T}[K]} \leq \widetilde{\mathcal{O}}(K^{-\gamma'/(4\gamma'+1)}),
+    \end{equation}
+    where $\widetilde{O}$ absorbs $\log K$ factors from the $L_\infty$ sensitivity bound, finite-sample concentration, the doubling-epoch union bound, and the Martingale Bernstein inequality.
+\end{theorem}
+
+\begin{proof}
+    The proof proceeds through seven steps.
+
+    \textbf{Step 1: Continuous-time regret decomposition.}
+    By the fundamental decomposition~\eqref{eq:ct_decomp}:
+    \begin{multline}
+        \mathrm{Regret}(K) = \underbrace{\sum_{k=1}^K \E_{a \sim \pi_k}[A^*(s_k, a) \mid s_k]}_{\text{(I): Expected Advantage}} \\
+        + \underbrace{M_1^K + M_2^K + M_3^K + M_4^K}_{\text{(II): MDS noise}} + \underbrace{h^*(s_{K+1}) - h^*(s_1)}_{\text{(III): Boundary}}.
+    \end{multline}
+
+    \textbf{Step 2: Bound the MDS and boundary terms.}
+    By Lemma~\ref{lem:mds_concentration}, on a high-probability event $\mathcal{E}_{\mathrm{MDS}}$ with $P(\mathcal{E}_{\mathrm{MDS}}^c) \leq \delta_{\mathrm{conf}}/5$:
+    \begin{equation}
+        \label{eq:mds_total}
+        |M_1^K| + |M_2^K| + |M_3^K| + |M_4^K| \leq \widetilde{O}(\sqrt{K}).
+    \end{equation}
+
+    \textbf{Step 3: Phase 1 contribution to the advantage sum.}
+    During Phase~1 (customers $k = 1, \ldots, T_1$), the conditionally expected per-step advantage under the behavioral pricing policy $\pi_k$ is bounded by $\E_{a \sim \pi_k}[A^*(s_k, a) \mid s_k] \leq A_{\max} = \mathcal{O}(\log K)$. Since $T_1 = \mathcal{O}(d\log K)$ by Lemma~\ref{lem:phase1}:
+    \begin{equation}
+        \label{eq:phase1_adv}
+        \sum_{k=1}^{T_1} \E_{a \sim \pi_k}[A^*(s_k, a) \mid s_k] \leq \mathcal{O}(\log K) \cdot T_1 = \mathcal{O}(\log^2 K) = \widetilde{\mathcal{O}}(1).
+    \end{equation}
+
+    \textbf{Step 4: Phase 2 per-step advantage decomposition.}
+    For customers $k > T_1$ in Phase~2, the algorithm deploys the $\varepsilon$-greedy randomization of the frozen epoch policy $\what{\pi}_j$. We explicitly partition the sample path visits into the active estimation domain $\mathcal{E}_{\mathrm{est},j} = \{t_{\mathrm{age}} + T \le t_{\max,j}\}$ and the pessimistic PFU tail $\mathcal{S}_{\mathrm{tail},j}$.
+
+    The per-step advantage decomposes by action type:
+    \begin{itemize}
+        \item With probability $1 - \varepsilon$, the greedy action $\what{\pi}_j(s_k)$ is played. Because $\what{\pi}_j$ enforces strict PFU rejection in the tail ($t > t_{\max, j}$), we map its advantage relative to the true optimal policy $\pi^*$ through an intermediate PFU-truncated optimal policy $\pi^*_{\mathrm{PFU}}$, which agrees with $\pi^*$ on $\mathcal{E}_{\mathrm{est},j}$ and forces rejection in $\mathcal{S}_{\mathrm{tail},j}$.
+
+        We bound $\|h^* - h^*_{\mathrm{PFU}}\|_\infty$ via a coupling argument. Run $\pi^*$ and $\pi^*_{\mathrm{PFU}}$ on the same probability space; the two policies agree on every state except those in the PFU tail. By the unichain structure, after any disagreement episode, both chains re-couple at the reset state $(0,0)$ within at most $N_{\mathrm{steps}} = \mathcal{O}(1)$ discrete customer steps. During a single disagreement episode (which lasts at most one sojourn of duration $\le M_T = \mathcal{O}(\log K)$), the per-step reward difference is bounded by $\mathrm{sp}(h^*) = \mathcal{O}(1)$, and the gain shift $|\rho^* - \rho^*_{\mathrm{PFU}}|$ accumulates over the sojourn time. Concretely:
+
+        \noindent\emph{(i) Gain difference.} By renewal-reward theory on the embedded discrete chain, the stationary probability of visiting the tail per cycle is $S^{\pi^*}(t_{\max,j}) / N_{\mathrm{steps}}$. The maximum one-step reward perturbation in the tail is $\mathrm{sp}(h^*) = \mathcal{O}(1)$. Therefore:
+        \begin{equation}
+            |\rho^* - \rho^*_{\mathrm{PFU}}| \leq \frac{\mathrm{sp}(h^*) \cdot S^{\pi^*}(t_{\max,j})}{N_{\mathrm{steps}}} = \mathcal{O}(1) \cdot S^{\pi^*}(t_{\max,j}).
+        \end{equation}
+
+        \noindent\emph{(ii) Bias difference.} Unrolling the Poisson equation over one hitting-time cycle of length $N_{\mathrm{steps}}$, each step accumulates (a) the one-step reward difference (at most $\mathrm{sp}(h^*)$ in the tail, zero elsewhere) and (b) the gain shift $|\rho^* - \rho^*_{\mathrm{PFU}}|$ multiplied by the sojourn time $\E[\tau \mid s] \le M_T$. Therefore:
+        \begin{multline}
+            \label{eq:trunc_bias}
+            \|h^* - h^*_{\mathrm{PFU}}\|_\infty \\
+            \leq N_{\mathrm{steps}} \Big[\mathrm{sp}(h^*) \cdot S^{\pi^*}(t_{\max,j}) + |\rho^* - \rho^*_{\mathrm{PFU}}| \cdot M_T\Big] \\
+            = \mathcal{O}(\log K) \cdot S^{\pi^*}(t_{\max,j}).
+        \end{multline}
+        By Lemma~\ref{lem:breslow_tail}, $S^{\pi^*}(t_{\max,j}) \le \mathcal{O}((N_{\mathrm{eff}})^{-\gamma'(1-\alpha)})$. We define the truncation penalty inclusive of the logarithmic sojourn-time amplification:
+        \begin{equation}
+            \label{eq:trunc_penalty_def}
+            \varepsilon_{\mathrm{trunc},j} := \mathcal{O}(\log K) \cdot S^{\pi^*}(t_{\max,j}) = \widetilde{\mathcal{O}}((N_{\mathrm{eff}})^{-\gamma'(1-\alpha)}).
+        \end{equation}
+
+        Because $\what{\pi}_j$ unconditionally rejects jobs crossing into the PFU tail, every state-action pair evaluated as an \texttt{Accept} by $\what{\pi}_j$ resides strictly within $\mathcal{E}_{\mathrm{est},j}$. Thus, the localized pointwise advantage relative to the truncated MDP is bounded exactly by the Q-function perturbation exclusively on $\mathcal{E}_{\mathrm{est},j}$ (Proposition~\ref{prop:perturbation}). The true advantage adds the global truncation shift:
+        \begin{multline}
+            A^*(s_k, \what{\pi}_j(s_k)) \le A^*_{\mathrm{PFU}}(s_k, \what{\pi}_j(s_k)) + 2\|h^* - h^*_{\mathrm{PFU}}\|_\infty \\
+            \leq \widetilde{\mathcal{O}}(\varepsilon_{\mathrm{surv},j}) + \widetilde{\mathcal{O}}(\varepsilon_u) + \widetilde{\mathcal{O}}(\delta_N) + 2\varepsilon_{\mathrm{trunc},j}.
+        \end{multline}
+        This fully decouples the pathwise statistical estimation error from the stationary truncation bias.
+        \item With probability $\varepsilon$, a random exploratory action is played, contributing at most $A^*(s_k, a_{\mathrm{rand}}) \leq A_{\max} = \mathcal{O}(\log K)$.
+    \end{itemize}
+
+    Within Epoch~$j$, the expected advantage contribution satisfies:
+    \begin{multline}
+        \label{eq:epoch_advantage}
+        \sum_{k \in \mathrm{Epoch}\,j} \E_{a \sim \what{\pi}_j}[A^*(s_k, a) \mid s_k] \\
+        \leq N_j \Big[(1-\varepsilon)\big(\widetilde{\mathcal{O}}(\varepsilon_{\mathrm{surv},j}) + \widetilde{\mathcal{O}}(\varepsilon_u) \\
+        + \widetilde{\mathcal{O}}(\delta_N) + 2\varepsilon_{\mathrm{trunc},j}\big) + \varepsilon \cdot \mathcal{O}(\log K)\Big].
+    \end{multline}
+
+    By the SMDP Bellman perturbation bounds and the Breslow plug-in decoupling (Lemma~\ref{lem:breslow_plugin}), the effective per-epoch survival perturbation $\varepsilon_{\mathrm{surv},j}$ is governed by the parametric error $\widetilde{\mathcal{O}}((\varepsilon N_{j-1})^{-1/2})$ and the Breslow error $\widetilde{\mathcal{O}}((\varepsilon^2 N_{j-1})^{-\alpha/2})$. Using the globally optimized parameters $\varepsilon = K^{-p}$ and $\alpha = \frac{2\gamma'}{2\gamma'+1}$, we rigorously verify that the non-parametric noise strictly dominates in the final epoch: $\alpha(1-2p) = \frac{2\gamma'}{4\gamma'+1} < \frac{3\gamma'+1}{4\gamma'+1} = 1-p$. The survival perturbation is therefore bottlenecked exclusively by the non-parametric rate:
+    \begin{equation}
+        \label{eq:bell_decomp}
+        \varepsilon_{\mathrm{surv},j} \leq \widetilde{\mathcal{O}}\!\big((\varepsilon^2 N_{j-1})^{-\alpha/2}\big),
+    \end{equation}
+    where $N_{j-1} = 2^{j-1}$ is the deterministic number of customer arrivals from the preceding epoch.
+
+    \textbf{Step 5: High-probability events.}
+    Fix $\delta_{\mathrm{conf}} \in (0, 1)$. Let $j_{\mathrm{burn}}$ be the first epoch satisfying $N_{j-1} \ge K^{2p}$, guaranteeing the finite-sample burn-in condition. Define the joint good event:
+    \begin{enumerate}
+        \item $\mathcal{E}_{\mathrm{Phase1}}$: Phase~1 terminates in $T_1$ steps (Lemma~\ref{lem:phase1}), with $P(\mathcal{E}_{\mathrm{Phase1}}^c) \leq \delta_{\mathrm{conf}}/5$.
+        \item $\mathcal{E}_{\mathrm{MDS}}$: the four MDS terms satisfy~\eqref{eq:mds_total}, with $P(\mathcal{E}_{\mathrm{MDS}}^c) \leq \delta_{\mathrm{conf}}/5$.
+        \item $\mathcal{E}_{\mathrm{Hess}}$: the empirical Hessian is well-conditioned (Lemma~\ref{lem:theta_concentration}) simultaneously for all post-burn-in Phase 2 epochs ($j \ge j_{\mathrm{burn}}$). Because the required finite-sample size deterministically fails in early epochs, we strictly restrict this intersection event to epochs where $N_{j-1}$ guarantees the burn-in condition, securely yielding $P(\mathcal{E}_{\mathrm{Hess}}^c) \leq \delta_{\mathrm{conf}}/5$ via union bound over the valid epochs without creating a zero-probability contradiction.
+        \item $\mathcal{G}_j$: for each epoch $j \ge j_{\mathrm{burn}}$, the survival perturbation on the estimation domain satisfies $\varepsilon_{\mathrm{surv},j} \leq \widetilde{\mathcal{O}}((\varepsilon^2 N_{j-1})^{-\alpha/2})$. A union bound over epochs contributes $\delta_{\mathrm{conf}}/5$.
+        \item $\mathcal{E}_{\mathcal{T}}$: The total elapsed time satisfies $\mathcal{T}[K] \ge K / (2\mu_\tau)$. Standard Chernoff bounds for the Gamma distribution guarantee $P(\mathcal{E}_{\mathcal{T}}^c) \le \exp(-c K) \le \delta_{\mathrm{conf}}/5$ for sufficiently large $K$.
+    \end{enumerate}
+    By a union bound, the combined good event $\mathcal{E} := \mathcal{E}_{\mathrm{Phase1}} \cap \mathcal{E}_{\mathrm{MDS}} \cap \mathcal{E}_{\mathrm{Hess}} \cap \mathcal{E}_{\mathcal{T}} \cap \bigcap_{j \ge j_{\mathrm{burn}}} \mathcal{G}_j$ satisfies $P(\mathcal{E}) \geq 1 - \delta_{\mathrm{conf}}$.
+
+    \textbf{Step 6: Cumulative Regret Assembly via 5-Way Decomposition.}
+    The total regret over $K$ customers decomposes into five distinct sources. With deterministic epochs $N_j = 2^j$, a fixed exploration rate $\varepsilon = K^{-p}$, pricing precision $\varepsilon_u = K^{-p}$, and grid spacing $\delta_N = \widetilde{\mathcal{O}}(K^{-p})$, we evaluate the regret summed over all epochs $j=1 \dots J$, where $N_J \approx K$:
+
+    \noindent \textbf{0. Epoch Burn-in and Boundary Regret:}
+    The algorithm executes a forced \texttt{Replace} action at the start of each of the $J = \lceil \log_2 K \rceil$ epochs, contributing exactly $\mathcal{O}(R \log K)$ regret. Furthermore, epochs $j < j_{\mathrm{burn}}$ do not securely satisfy the finite-sample conditions. The maximum possible regret accumulated during these initial burn-in epochs is deterministically bounded by the maximum pointwise advantage: $A_{\max} \sum_{N_j \le \mathcal{O}(K^{2p})} N_j = \mathcal{O}(K^{2p} \log K)$. With the optimal parameterization $p = \frac{\gamma'}{4\gamma'+1} < 1/4$, we strictly have $3p < 1 \iff p < 1/3 \implies 2p < 1-p$. This rigorously guarantees this burn-in regret is structurally lower-order and absorbed seamlessly into the final rate.
+
+    \noindent \textbf{1. Fixed Algorithmic Regret (Pricing, Discretization \& Truncation):}
+    SMDP grid discretization uses $N = \Theta(K^p)$ points. Because the active-time dimensions are truncated at $M_{\max} = \mathcal{O}(\log K)$, the spacing evaluates explicitly to $\delta_N = \mathcal{O}(K^{-p} \log K) = \widetilde{\mathcal{O}}(K^{-p})$. Combined with the locked Phase~1 pricing error $\varepsilon_u = K^{-p}$ and the state-space boundary truncations (Lemma~\ref{lem:truncation_T} contributing $1/K$), the uniform per-step advantage error is bounded by $\widetilde{\mathcal{O}}(\varepsilon_u \log K + \delta_N \log K + 1/K) = \widetilde{\mathcal{O}}(K^{-p})$. Summing this penalty over all $K$ steps yields:
+    \begin{equation}
+        \mathrm{Regret}_{\mathrm{fixed}} = \sum_{j=1}^J N_j \cdot \widetilde{\mathcal{O}}(K^{-p}) = \widetilde{\mathcal{O}}(K^{1-p}).
+    \end{equation}
+
+    \noindent \textbf{2. PFU Truncation Regret:}
+    By~\eqref{eq:trunc_penalty_def}, the per-step truncation regret is bounded by $\varepsilon_{\mathrm{trunc},j} = \widetilde{\mathcal{O}}((N_{\mathrm{eff},j-1})^{-\gamma'(1-\alpha)})$, where $N_{\mathrm{eff},j-1} = \varepsilon^2 N_{j-1}$. Summing over all epochs:
+    \begin{multline}
+        \mathrm{Regret}_{\mathrm{PFU}} \le \sum_{j=1}^J N_j \cdot \widetilde{\mathcal{O}}\big((\varepsilon^2 N_{j-1})^{-\gamma'(1-\alpha)}\big) \\
+        = \widetilde{\mathcal{O}}\bigg(\varepsilon^{-2\gamma'(1-\alpha)} \sum_{j=1}^J N_j^{1-\gamma'(1-\alpha)}\bigg).
+    \end{multline}
+    Since $\gamma'(1-\alpha) = \gamma' \cdot \frac{1}{2\gamma'+1} = \frac{\gamma'}{2\gamma'+1} = \kappa < 1$, the geometric sum is dominated by the final epoch $N_J \approx K$. Thus $\mathrm{Regret}_{\mathrm{PFU}} = \widetilde{\mathcal{O}}(\varepsilon^{-2\kappa} K^{1-\kappa})$.
+
+    \noindent \textbf{3. Exploration Regret:}
+    The $\varepsilon$-greedy policy forces random exploration with probability $\varepsilon$. Over $K$ steps:
+    \begin{equation}
+        \mathrm{Regret}_{\mathrm{explore}} = \sum_{j=1}^J N_j \cdot \mathcal{O}(\varepsilon \log K) = \widetilde{\mathcal{O}}(K \varepsilon) = \widetilde{\mathcal{O}}(K^{1-p}).
+    \end{equation}
+
+    \noindent \textbf{4. Parametric Regret (Cox $\theta$ Error):}
+    By Lemma~\ref{lem:theta_concentration}, $\varepsilon_{\theta,j} = \widetilde{\mathcal{O}}((\varepsilon N_{j-1})^{-1/2})$. The total regret due to parametric misestimation is:
+    \begin{equation}
+        \mathrm{Regret}_{\theta} \le \sum_{j=1}^J N_j \cdot \widetilde{\mathcal{O}}\big((\varepsilon N_{j-1})^{-1/2}\big) = \widetilde{\mathcal{O}}\bigg(\varepsilon^{-1/2} \sum_{j=1}^J N_j^{1/2}\bigg).
+    \end{equation}
+    Since $N_j$ doubles geometrically, the sum is dominated by $N_J \approx K$. Substituting $\varepsilon = K^{-p}$: $\widetilde{\mathcal{O}}(K^{p/2} \cdot K^{1/2}) = \widetilde{\mathcal{O}}(K^{(1+p)/2})$. As verified below, this is strictly lower-order since $(1+p)/2 < 1-p$ for all $p < 1/3$.
+
+    \noindent \textbf{5. Non-Parametric Regret (Breslow $\Lambda_0$ Error):}
+    By Lemma~\ref{lem:breslow_plugin}, $\varepsilon_{\Lambda,j} = \widetilde{\mathcal{O}}((\varepsilon^2 N_{j-1})^{-\alpha/2})$. Summing over all epochs:
+    \begin{equation}
+        \mathrm{Regret}_{\Lambda_0} \le \sum_{j=1}^J N_j \cdot \widetilde{\mathcal{O}}\big((\varepsilon^2 N_{j-1})^{-\alpha/2}\big) = \widetilde{\mathcal{O}}\bigg(\varepsilon^{-\alpha} \sum_{j=1}^J N_j^{1-\alpha/2}\bigg).
+    \end{equation}
+    Since $\alpha/2 = \kappa < 1$, the geometric sum is dominated by the final epoch. Thus $\mathrm{Regret}_{\Lambda_0} = \widetilde{\mathcal{O}}(\varepsilon^{-\alpha} K^{1-\alpha/2}) = \widetilde{\mathcal{O}}(\varepsilon^{-2\kappa} K^{1-\kappa})$, matching the PFU term exactly (by design of the optimal $\alpha$).
+
+    \textbf{Step 7: Final Average-Reward Rate.}
+    Substituting $\varepsilon = K^{-\frac{\gamma'}{4\gamma'+1}}$, the dominant fixed algorithmic, exploration, non-parametric, and PFU regret terms all scale identically as $\widetilde{\mathcal{O}}(K^{1-p}) = \widetilde{\mathcal{O}}(K^{\frac{3\gamma'+1}{4\gamma'+1}})$.
+
+    We must verify that the parametric regret, which scales as $\widetilde{\mathcal{O}}(K^{\frac{1}{2} + \frac{p}{2}})$, is strictly lower-order. We require $1/2 + p/2 < 1 - p \iff 3p/2 < 1/2 \iff p < 1/3$. Since $p = \frac{\gamma'}{4\gamma'+1} < 1/4 < 1/3$ for all $\gamma' \in (0,1)$, the parametric error is strictly dominated. Dividing the cumulative regret $\widetilde{\mathcal{O}}(K^{1-p})$ by the total elapsed time $\mathcal{T}[K] = \Omega(K)$ (which holds deterministically on the good event $\mathcal{E}_{\mathcal{T}}$), the average-reward regret is rigorously bounded by:
+    \begin{equation}
+        \rho^* - \frac{\sum_{k=1}^K r_k}{\mathcal{T}[K]} \le \widetilde{\mathcal{O}}\left(K^{-\frac{\gamma'}{4\gamma'+1}}\right),
+    \end{equation}
+    preserving the sublinear optimal rate with strict finite-sample guarantees.
+\end{proof}
+
+\begin{corollary}[Cumulative and Average-Reward Rates]
+    \label{cor:rate}
+    Under the conditions of Theorem~\ref{thm:main}, with the optimal parameterization $p = \frac{\gamma'}{4\gamma'+1}$, exploration rate $\varepsilon = \varepsilon_u = K^{-p}$, and grid resolution $N = \Theta(K^{p})$, the following hold with probability at least $1 - \delta_{\mathrm{conf}}$ for all $K$ sufficiently large:
+    \begin{enumerate}
+        \item \emph{Cumulative regret:} $\displaystyle \mathrm{Regret}(K) = \rho^*\,\mathcal{T}[K] - \sum_{k=1}^K r_k \leq \widetilde{\mathcal{O}}\left(K^{\frac{3\gamma'+1}{4\gamma'+1}}\right)$.
+        \item \emph{Average-reward regret:} $\displaystyle \rho^* - \frac{\sum_{k=1}^K r_k}{\mathcal{T}[K]} \leq \widetilde{\mathcal{O}}\left(K^{-\frac{\gamma'}{4\gamma'+1}}\right)$.
+    \end{enumerate}
+    The $\widetilde{O}$ absorbs polylogarithmic factors from the sojourn time perturbation and gain shift amplification ($\mathcal{O}(\log^2 K)$ via Proposition~\ref{prop:perturbation}$)$, the truncation penalty ($\mathcal{O}(\log K)$ via~\eqref{eq:trunc_penalty_def}$)$, the maximum advantage bound $A_{\max} = \mathcal{O}(\log K)$, the grid spacing $\delta_N = \mathcal{O}(K^{-p}\log K)$, the Phase~1 duration $T_1 = \mathcal{O}(d \cdot p \log K)$, the Martingale Bernstein inequality, finite-sample concentration bounds, and the $\mathcal{O}(\log K)$-epoch union bound.
+\end{corollary}
+
+\bibliography{bibliography}
+
+\end{document}

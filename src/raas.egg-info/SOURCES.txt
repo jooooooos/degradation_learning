@@ -7,9 +7,13 @@ src/raas/__init__.py
 src/raas/config.py
 src/raas/degradation_learner.py
 src/raas/discrete_policy.py
+src/raas/fully_myopic_policy.py
 src/raas/hazard_models.py
-src/raas/neural_policy.py
+src/raas/mdp_policy.py
+src/raas/myopic_heuristic_policy.py
 src/raas/optimized_discrete_policy.py
+src/raas/optimized_utility_learner.py
+src/raas/policy.py
 src/raas/simulation.py
 src/raas/utility_learner.py
 src/raas/utils.py

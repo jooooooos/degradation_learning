@@ -22,6 +22,7 @@ def interarrival_sampler(scale=5.0) -> float:
 D = 4                                  # Dimension of context vectors
 LAMBDA_VAL = 0.001                     # Baseline hazard constant
 NUM_CUSTOMERS = 40000                   # Total number of customers to simulate, i.e. T
+POLICY_UPDATE_FREQUENCY = 50
 
 # Ground truth vectors
 THETA_TRUE = np.array([0.5, 0.2, 0.4, 0.3])#$, 0.4])    # For degradation
@@ -45,26 +46,21 @@ mdp_params = {
     'duration_lambda': 10.0,
     'interarrival_lambda': 5.0,
     'replacement_cost': 1.5,   # Cost to replace the machine
-    'failure_cost': 0.75,      # Additional penalty for in-service failure
+    'failure_cost': 1.2,      # Additional penalty for in-service failure
     'holding_cost_rate': 0.02,   # Cost per unit of idle time
     'gamma': 0.99,             # Discount factor
     'learning_rate': 1e-3,      # Learning rate for the Adam optimizer
     'target_update_freq': 10    # How often to update the target network (in iterations)
 }
 
-
 training_hyperparams = {
-    # For FQI
-    'num_iterations': 1, # Number of training iterations per policy update
-    'dataset_size': 50000,      # Number of transitions to generate for the offline dataset
-    'batch_size': 256,           # Batch size for training
-
     # For discrete DP
-    'N': [50, 50, 50, 50, 50], # grid sizes [cum_context, context, revenue, duration, active_time]
+    'N': [100, 50, 50, 50, 50], # grid sizes [cum_context, context, revenue, duration, active_time]
     # [100, 50, 100, 100]
-    'max_cumulative_context': 8.0,
+    'max_cumulative_context': 15.0,
     # 'max_active_time': 150.0,
-    'num_value_iterations': 100,
+    'num_precompute_samples': 150000,
+    'num_value_iterations': 200,
     
 }
 

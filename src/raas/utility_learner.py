@@ -428,7 +428,7 @@ def projected_volume_update(
     return S_tp1, V_tp1, data
 
 class ProjectedVolumeLearner:
-    def __init__(self, T, d, centroid_params={}, incentive_constant=5, termination_rule=None):
+    def __init__(self, T, d, centroid_params={}, incentive_constant=5.0, termination_rule=None):
         self.T = T
         self.d = d
         self.delta_bar = delta_bar(T, d)
