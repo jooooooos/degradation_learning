@@ -24,8 +24,8 @@
 #SBATCH --partition=savio4_htc
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2
-#SBATCH --mem-per-cpu=8G
+#SBATCH --cpus-per-task=8
+#SBATCH --mem-per-cpu=3G
 #SBATCH --time=04:00:00
 #SBATCH --array=0-179
 #SBATCH --mail-type=END,FAIL
