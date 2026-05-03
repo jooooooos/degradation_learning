@@ -50,8 +50,10 @@ EXPDATE="$(date +%Y%m%d)"
 SCRATCH_BASE="${SCRATCH_BASE:-/global/scratch/users/${USER}/raas_sensitivity_${EXPDATE}}"
 OUT_DIR="${SCRATCH_BASE}/chunks"
 
-# Repo root (this script lives in <repo>/savio_jobs/).
-REPO_ROOT="$(cd "$(dirname "$0")"/.. && pwd)"
+# Repo root. Under SLURM, $0 points to a staged copy in /var/spool/slurmd/...,
+# so we use SLURM_SUBMIT_DIR (set by SLURM to the directory you ran sbatch from).
+# The :- fallback lets the script still work outside SLURM (e.g. local testing).
+REPO_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
 
 # --- Sanity check task-id range ------------------------------------------- #
 EXPECTED_LAST=$((6 * N_GRID - 1))
@@ -66,7 +68,7 @@ mkdir -p slurm_out
 
 module purge
 module load anaconda3
-source activate res
+source activate degradable
 
 # Pin numba/OpenMP to the cores actually allocated to this task; matters because
 # raas.optimized_discrete_policy uses parallel=True kernels that would otherwise
